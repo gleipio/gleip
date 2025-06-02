@@ -1,0 +1,276 @@
+name: Build Gleip for All Platforms
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    # Use MACOS environment for macOS release builds to access signing certificates
+    environment: ${{ matrix.os == 'darwin' && github.event_name == 'release' && 'MACOS' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+            
+          # macOS builds  
+          - os: darwin
+            arch: arm64
+            runner: macos-14  # Apple Silicon Mac
+            
+          # Linux builds
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    # Platform-specific dependency installation
+    - name: Install Linux dependencies
+      if: matrix.os == 'linux'
+      run: |
+        sudo apt update
+        sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
+        
+        # Create webkit compatibility symlink (architecture-aware)
+        if [ "${{ matrix.arch }}" = "amd64" ]; then
+          ARCH_DIR="x86_64-linux-gnu"
+        elif [ "${{ matrix.arch }}" = "arm64" ]; then
+          ARCH_DIR="aarch64-linux-gnu"
+        fi
+        
+        # Create webkit compatibility symlink if the source file exists
+        WEBKIT_SOURCE="/usr/lib/${ARCH_DIR}/pkgconfig/webkit2gtk-4.1.pc"
+        WEBKIT_TARGET="/usr/lib/${ARCH_DIR}/pkgconfig/webkit2gtk-4.0.pc"
+        
+        if [ -f "$WEBKIT_SOURCE" ]; then
+          echo "Creating webkit compatibility symlink: $WEBKIT_TARGET -> webkit2gtk-4.1.pc"
+          sudo ln -sf webkit2gtk-4.1.pc "$WEBKIT_TARGET"
+        else
+          echo "Warning: WebKit source file not found at $WEBKIT_SOURCE"
+          echo "Available files in /usr/lib/${ARCH_DIR}/pkgconfig/:"
+          ls -la "/usr/lib/${ARCH_DIR}/pkgconfig/" || echo "Directory not found"
+        fi
+
+    - name: Install macOS dependencies
+      if: matrix.os == 'darwin'
+      run: |
+        brew install create-dmg
+
+    - name: Install Windows dependencies
+      if: matrix.os == 'windows'
+      run: |
+        # Install NSIS for packaging
+        choco install nsis -y
+
+    # Install Wails
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    # Set environment variable to skip code signing in CI
+    - name: Set CI environment
+      run: echo "GLEIP_CI_BUILD=true" >> $GITHUB_ENV
+      shell: bash
+
+    # Setup code signing for releases (macOS only)
+    - name: Setup code signing for releases
+      if: matrix.os == 'darwin' && github.event_name == 'release'
+      run: |
+        # Only run code signing for actual releases, not regular CI
+        echo "GLEIP_CI_BUILD=" >> $GITHUB_ENV  # Clear the CI flag for releases
+        echo "ENABLE_CODE_SIGNING=true" >> $GITHUB_ENV
+      shell: bash
+
+    # Import signing certificate for releases (macOS only)
+    - name: Import signing certificate
+      if: matrix.os == 'darwin' && github.event_name == 'release'
+      run: |
+        # Check if certificate is available
+        if [ -z "$MACOS_CERTIFICATE" ]; then
+          echo "⚠️ No signing certificate found. Release will be unsigned."
+          echo "To enable signing, add MACOS_CERTIFICATE and MACOS_CERTIFICATE_PASSWORD to the MACOS environment."
+          exit 0
+        fi
+        
+        echo "🔐 Setting up code signing certificate..."
+        
+        # Create keychain and import certificate
+        KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+        security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+        
+        # Import certificate
+        echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+        security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+        
+        # Clean up certificate file
+        rm certificate.p12
+        
+        echo "✅ Code signing certificate imported successfully"
+      env:
+        MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      shell: bash
+
+    # Extract version from wails.json for build injection
+    - name: Extract version
+      shell: bash
+      run: |
+        VERSION=$(grep '"productVersion"' wails.json | sed 's/.*": "\\(.*\\)".*/\\1/')
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "Building version: $VERSION"
+
+    # Build using our Go build tool (will use pre-committed certificate databases)
+    - name: Build for current platform
+      run: go run cmd/build-tool/main.go build
+      env:
+        POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+        POSTHOG_ENDPOINT: ${{ secrets.POSTHOG_ENDPOINT }}
+
+    # Package artifacts
+    - name: Package artifacts
+      shell: bash
+      run: |
+        mkdir -p dist
+        
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          if [ -f "./build/bin/Gleip.exe" ]; then
+            cp "./build/bin/Gleip.exe" "dist/Gleip-windows-${{ matrix.arch }}.exe"
+          fi
+        elif [ "${{ matrix.os }}" = "darwin" ]; then
+          if [ -f "./build/bin/Gleip.app" ]; then
+            tar -czf "dist/Gleip-darwin-${{ matrix.arch }}.tar.gz" -C "./build/bin" "Gleip.app"
+          fi
+          if [ -f "./build/bin/"*.dmg ]; then
+            cp "./build/bin/"*.dmg "dist/"
+          fi
+        elif [ "${{ matrix.os }}" = "linux" ]; then
+          if [ -f "./build/bin/Gleip" ]; then
+            cp "./build/bin/Gleip" "dist/Gleip-linux-${{ matrix.arch }}"
+            chmod +x "dist/Gleip-linux-${{ matrix.arch }}"
+          fi
+        fi
+
+    # Upload artifacts
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gleip-${{ matrix.os }}-${{ matrix.arch }}
+        path: dist/
+        retention-days: 30
+
+  # Collect all artifacts and create a release (only on release events)
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: release-artifacts/
+
+    - name: Display structure
+      run: ls -la release-artifacts/
+
+    - name: Create release archives
+      run: |
+        cd release-artifacts
+        for dir in */; do
+          if [ -d "$dir" ]; then
+            echo "Processing $dir"
+            cd "$dir"
+            for file in *; do
+              if [ -f "$file" ]; then
+                echo "Found artifact: $file"
+              fi
+            done
+            cd ..
+          fi
+        done
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-artifacts/*/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Alternative: Build all platforms in one job (useful for testing)
+  build-all:
+    name: Build All Platforms (Single Job)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && contains(github.ref, 'refs/heads/test-build')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install Linux dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    # Set environment variable to skip code signing in CI
+    - name: Set CI environment
+      run: echo "GLEIP_CI_BUILD=true" >> $GITHUB_ENV
+
+    # This will attempt cross-compilation (may have limitations)
+    - name: Build for all platforms
+      run: go run cmd/build-tool/main.go build-all
+      env:
+        POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+        POSTHOG_ENDPOINT: ${{ secrets.POSTHOG_ENDPOINT }}
+
+    - name: Upload all artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gleip-all-platforms
+        path: build/bin/
+        retention-days: 7 

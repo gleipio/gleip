@@ -19,8 +19,8 @@ import (
 
 // GitHub API URL for fetching latest release
 const (
-	githubRepoOwner = "gleip-io"  // Replace with your actual GitHub username
-	githubRepoName  = "gleip-app" // Replace with your actual repo name
+	githubRepoOwner = "gleipio"
+	githubRepoName  = "gleip"
 	githubAPIURL    = "https://api.github.com/repos/%s/%s/releases/latest"
 )
 

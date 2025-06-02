@@ -1,2 +1,0 @@
-🐛 Bug Fixes
-- Auto-update now should reliably check for latest version

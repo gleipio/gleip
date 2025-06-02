@@ -56,7 +56,3 @@ For more advanced build options, you can call the build tool directly:
 ```bash
 go run cmd/build-tool/main.go [command] [args...]
 ```
-
-## Development
-
-See the [Code Signing documentation](docs/CODE-SIGNING.md) for information about certificates and signing. 

@@ -300,6 +300,12 @@ func checkBuildDependencies() {
 func buildForTarget(target BuildTarget) bool {
 	isNative := target.OS == runtime.GOOS && target.Arch == runtime.GOARCH
 
+	// Check for known cross-compilation limitations
+	if !isNative && target.OS == "linux" && target.Arch == "arm64" && runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		fmt.Println("⚠️  Note: Cross-compiling Linux ARM64 from AMD64 may fail due to WebKit library dependencies")
+		fmt.Println("   This is a known limitation of Wails cross-compilation for GUI applications")
+	}
+
 	// Create target-specific output directory
 	var outputDir string
 	if isNative {

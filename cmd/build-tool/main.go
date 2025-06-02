@@ -300,12 +300,6 @@ func checkBuildDependencies() {
 func buildForTarget(target BuildTarget) bool {
 	isNative := target.OS == runtime.GOOS && target.Arch == runtime.GOARCH
 
-	// Check for known cross-compilation limitations
-	if !isNative && target.OS == "linux" && target.Arch == "arm64" && runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		fmt.Println("⚠️  Note: Cross-compiling Linux ARM64 from AMD64 may fail due to WebKit library dependencies")
-		fmt.Println("   This is a known limitation of Wails cross-compilation for GUI applications")
-	}
-
 	// Create target-specific output directory
 	var outputDir string
 	if isNative {
@@ -947,16 +941,12 @@ func packageMacOS(version string) {
 
 	// Code signing logic
 	if commandExists("codesign") {
-		if os.Getenv("GLEIP_CI_BUILD") != "" {
+		if os.Getenv("GLEIP_CI_BUILD") != "" && os.Getenv("ENABLE_CODE_SIGNING") != "true" {
 			fmt.Println("Skipping code signing in CI environment...")
 		} else if os.Getenv("ENABLE_CODE_SIGNING") == "true" {
 			// Release builds with proper certificates
 			fmt.Println("Signing application for release...")
-			signingIdentity := os.Getenv("MACOS_SIGNING_IDENTITY")
-			if signingIdentity == "" {
-				signingIdentity = "Developer ID Application" // Default to Developer ID
-			}
-			runCmd("codesign", "--force", "--deep", "--sign", signingIdentity, appPath)
+			runCmd("codesign", "--force", "--deep", "--sign", "Gleip.io", appPath)
 
 			// Verify the signature
 			fmt.Println("Verifying code signature...")
@@ -968,9 +958,9 @@ func packageMacOS(version string) {
 		}
 	}
 
-	// Create DMG with architecture-specific name
+	// Create DMG with standard naming
 	arch := runtime.GOARCH
-	dmgName := fmt.Sprintf("Gleip-mac-%s.dmg", arch)
+	dmgName := fmt.Sprintf("gleip-%s-macos-%s.dmg", version, arch)
 	dmgPath := filepath.Join("./build/bin", dmgName)
 	tempDir := "./build/dmg_temp"
 
@@ -978,8 +968,10 @@ func packageMacOS(version string) {
 	runCmd("cp", "-R", appPath, tempDir+"/")
 
 	if commandExists("create-dmg") {
-		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", dmgPath, tempDir)
+		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, tempDir)
 	} else if commandExists("hdiutil") {
+		// Create Applications symlink for hdiutil
+		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
 		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
 	}
 
@@ -996,7 +988,7 @@ func packageMacOSCrossCompiled(outputDir, version, arch string) {
 	fmt.Printf("Packaging macOS %s build...\n", arch)
 
 	// Create DMG for cross-compiled build
-	dmgName := fmt.Sprintf("Gleip-mac-%s-%s.dmg", arch, version)
+	dmgName := fmt.Sprintf("gleip-%s-macos-%s.dmg", version, arch)
 	dmgPath := filepath.Join(outputDir, dmgName)
 	tempDir := filepath.Join(outputDir, "dmg_temp")
 
@@ -1004,6 +996,8 @@ func packageMacOSCrossCompiled(outputDir, version, arch string) {
 	runCmd("cp", "-R", appPath, tempDir+"/")
 
 	if commandExists("hdiutil") {
+		// Create Applications symlink for hdiutil
+		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
 		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
 		os.RemoveAll(tempDir)
 		fmt.Printf("✅ Cross-compiled DMG created: %s\n", dmgPath)
@@ -1314,11 +1308,12 @@ func publishRelease() {
 			return err
 		}
 
-		// Include executables, DMGs, and archives
+		// Include executables, DMGs, and archives with standard naming
 		if strings.HasSuffix(info.Name(), ".exe") ||
 			strings.HasSuffix(info.Name(), ".dmg") ||
 			strings.HasSuffix(info.Name(), ".tar.gz") ||
 			(info.Name() == "Gleip" && !info.IsDir()) ||
+			(strings.HasPrefix(info.Name(), "gleip-") && (strings.Contains(info.Name(), "-linux-") || strings.Contains(info.Name(), "-windows-") || strings.Contains(info.Name(), "-macos-")) && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-linux-") && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-windows-") && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-darwin-") && !info.IsDir()) {
@@ -1450,8 +1445,10 @@ func signDMGInPlace(dmgPath string) {
 
 	// Replace original DMG with signed version
 	if commandExists("create-dmg") {
-		runCmdSilent("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", dmgPath, extractDir)
+		runCmdSilent("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, extractDir)
 	} else {
+		// Create Applications symlink for hdiutil
+		runCmdSilent("ln", "-s", "/Applications", extractDir+"/Applications")
 		runCmdSilent("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", extractDir, "-ov", "-format", "UDZO", dmgPath)
 	}
 

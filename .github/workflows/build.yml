@@ -1,4 +1,4 @@
-name: Build Gleip for All Platforms
+name: Build on Push
 
 on:
   push:
@@ -146,7 +146,7 @@ jobs:
     - name: Extract version
       shell: bash
       run: |
-        VERSION=$(grep '"productVersion"' wails.json | sed 's/.*": "\\(.*\\)".*/\\1/')
+        VERSION=$(grep '"productVersion"' wails.json | sed 's/.*": "\([^"]*\)".*/\1/')
         echo "VERSION=$VERSION" >> $GITHUB_ENV
         echo "Building version: $VERSION"
 
@@ -165,19 +165,23 @@ jobs:
         
         if [ "${{ matrix.os }}" = "windows" ]; then
           if [ -f "./build/bin/Gleip.exe" ]; then
-            cp "./build/bin/Gleip.exe" "dist/Gleip-windows-${{ matrix.arch }}.exe"
+            cp "./build/bin/Gleip.exe" "dist/gleip-${{ env.VERSION }}-windows-${{ matrix.arch }}.exe"
           fi
         elif [ "${{ matrix.os }}" = "darwin" ]; then
-          if [ -f "./build/bin/Gleip.app" ]; then
-            tar -czf "dist/Gleip-darwin-${{ matrix.arch }}.tar.gz" -C "./build/bin" "Gleip.app"
-          fi
           if [ -f "./build/bin/"*.dmg ]; then
-            cp "./build/bin/"*.dmg "dist/"
+            for dmg in "./build/bin/"*.dmg; do
+              if [ -f "$dmg" ]; then
+                cp "$dmg" "dist/gleip-${{ env.VERSION }}-macos-${{ matrix.arch }}.dmg"
+              fi
+            done
+          fi
+          if [ -f "./build/bin/Gleip.app" ]; then
+            tar -czf "dist/gleip-${{ env.VERSION }}-macos-${{ matrix.arch }}.tar.gz" -C "./build/bin" "Gleip.app"
           fi
         elif [ "${{ matrix.os }}" = "linux" ]; then
           if [ -f "./build/bin/Gleip" ]; then
-            cp "./build/bin/Gleip" "dist/Gleip-linux-${{ matrix.arch }}"
-            chmod +x "dist/Gleip-linux-${{ matrix.arch }}"
+            cp "./build/bin/Gleip" "dist/gleip-${{ env.VERSION }}-linux-${{ matrix.arch }}"
+            chmod +x "dist/gleip-${{ env.VERSION }}-linux-${{ matrix.arch }}"
           fi
         fi
 
@@ -187,7 +191,7 @@ jobs:
       with:
         name: gleip-${{ matrix.os }}-${{ matrix.arch }}
         path: dist/
-        retention-days: 30
+        retention-days: 5
 
   # Collect all artifacts and create a release (only on release events)
   release:
@@ -195,6 +199,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
+    permissions:
+      contents: write
+      packages: write
     
     steps:
     - name: Download all artifacts
@@ -273,4 +280,4 @@ jobs:
       with:
         name: gleip-all-platforms
         path: build/bin/
-        retention-days: 7 
+        retention-days: 5 

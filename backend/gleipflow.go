@@ -1,7 +1,9 @@
 package backend
 
 import (
+	"Gleip/backend/chef"
 	"Gleip/backend/network"
+	"Gleip/backend/network/http_utils"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,19 +19,19 @@ import (
 // Now follows Single Responsibility Principle - only responsible for orchestrating flow execution
 type GleipFlowExecutor struct {
 	app                  *App
-	requestSender        RequestSender
+	requestSender        network.RequestSender
 	variableProcessor    VariableProcessor
 	variableExtractor    VariableExtractor
 	scriptExecutor       ScriptExecutor
 	eventEmitter         TransactionEventEmitter
-	responseDecompressor ResponseDecompressor
+	responseDecompressor network.ResponseDecompressor
 }
 
 // NewGleipFlowExecutor creates a new GleipFlowExecutor with dependencies injected
 func NewGleipFlowExecutor(app *App) *GleipFlowExecutor {
 	// Create HTTP client with timeouts
 	httpClient := &http.Client{
-		Transport: CreateHTTPTransport(),
+		Transport: network.CreateHTTPTransport(),
 		Timeout:   60 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -37,9 +39,9 @@ func NewGleipFlowExecutor(app *App) *GleipFlowExecutor {
 	}
 
 	// Create dependencies
-	responseFormatter := NewResponseFormatter()
-	responseDecompressor := NewResponseDecompressor()
-	requestSender := NewRequestSender(httpClient, responseDecompressor, responseFormatter)
+	responseFormatter := network.NewResponseFormatter()
+	responseDecompressor := network.NewResponseDecompressor()
+	requestSender := network.NewRequestSender(httpClient, responseDecompressor, responseFormatter)
 
 	return &GleipFlowExecutor{
 		app:                  app,
@@ -108,6 +110,12 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 			} else {
 				result = createErrorResult("", "Unknown", "script", "Script step is nil")
 			}
+		case "chef":
+			if step.ChefStep != nil {
+				result = e.executeChefStep(step.ChefStep, ctx)
+			} else {
+				result = createErrorResult("", "Unknown", "chef", "Chef step is nil")
+			}
 		default:
 			result = createErrorResult("", "Unknown", "unknown", fmt.Sprintf("Unsupported step type: %s", step.StepType))
 		}
@@ -173,7 +181,7 @@ func (e *GleipFlowExecutor) executeRequestStep(step *RequestStep, ctx *Execution
 	var actualRawRequest string
 
 	if step.Request.Dump != "" {
-		actualRawRequest, transaction, err = e.executeRawRequest(step, ctx, processedMethod, processedURL, processedHost)
+		actualRawRequest, transaction, err = e.executeRawRequest(step, ctx)
 	} else {
 		actualRawRequest, transaction, err = e.executeBuilderRequest(step, ctx, processedMethod, processedURL, processedHost)
 	}
@@ -207,30 +215,17 @@ func (e *GleipFlowExecutor) executeRequestStep(step *RequestStep, ctx *Execution
 }
 
 // executeRawRequest handles raw request execution
-func (e *GleipFlowExecutor) executeRawRequest(step *RequestStep, ctx *ExecutionContext, processedMethod, processedURL, processedHost string) (string, *network.HTTPTransaction, error) {
-	rawRequestWithPlaceholders := step.Request.Dump
-	processedRawRequestForSending := e.variableProcessor.ProcessVariables(step.Request.Dump, ctx.Variables)
-
-	var actualRawRequest string
-
-	if step.RecalculateContentLength {
-		_, bodyOfProcessedRequest := network.SplitRawRequest(processedRawRequestForSending)
-		newContentLength := len(bodyOfProcessedRequest)
-		actualRawRequest = network.UpdateContentLengthInRawRequest(rawRequestWithPlaceholders, newContentLength)
-		processedRawRequestForSending = network.UpdateContentLengthInRawRequest(processedRawRequestForSending, newContentLength)
-	} else {
-		actualRawRequest = rawRequestWithPlaceholders
+func (e *GleipFlowExecutor) executeRawRequest(step *RequestStep, ctx *ExecutionContext) (string, *network.HTTPTransaction, error) {
+	options := RequestExecutionOptions{
+		VariableProcessor: func(rawRequest string) string {
+			return e.variableProcessor.ProcessVariables(rawRequest, ctx.Variables)
+		},
+		RecalculateLength: step.RecalculateContentLength,
+		GunzipResponse:    step.GunzipResponse,
 	}
 
-	// Create the request object for sending
-	requestForSending := network.HTTPRequest{
-		Host: processedHost,
-		TLS:  step.Request.TLS,
-		Dump: processedRawRequestForSending,
-	}
-
-	transaction, err := e.requestSender.SendRawRequest(requestForSending, step.GunzipResponse)
-	return actualRawRequest, transaction, err
+	result := e.executeRequestWithOptions(step, options)
+	return result.ActualRawRequest, result.Transaction, result.Error
 }
 
 // executeBuilderRequest handles builder mode request execution
@@ -290,12 +285,6 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 
 	fmt.Printf("Starting fuzzing with %d words and %.2fs delay\n", len(step.FuzzSettings.CurrentWordlist), step.FuzzSettings.Delay)
 
-	// Process common variables
-	processedMethod := e.variableProcessor.ProcessVariables(step.Request.Method(), ctx.Variables)
-	processedURL := e.variableProcessor.ProcessVariables(step.Request.URL(), ctx.Variables)
-	processedHost := e.variableProcessor.ProcessVariables(step.Request.Host, ctx.Variables)
-	baseRawRequest := e.variableProcessor.ProcessVariables(step.Request.Dump, ctx.Variables)
-
 	// Create cancellation mechanism
 	done := make(chan struct{})
 	cancelled := false
@@ -315,14 +304,14 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 		case <-done:
 			fmt.Printf("Fuzzing cancelled after %d results\n", len(step.FuzzSettings.FuzzResults))
 			result.Success = true
-			result.Transaction = createSampleTransaction(step, processedMethod, processedURL, processedHost, step.FuzzSettings.FuzzResults)
+			result.Transaction = createSampleTransaction(step, step.FuzzSettings.FuzzResults)
 			TrackFuzzingCompleted("", step.ID, len(step.FuzzSettings.FuzzResults), true)
 			return result
 		default:
 		}
 
 		// Execute single fuzz request
-		fuzzResult := e.executeSingleFuzzRequest(step, word, baseRawRequest, processedMethod, processedURL, processedHost)
+		fuzzResult := e.executeSingleFuzzRequest(step, ctx)
 		step.FuzzSettings.FuzzResults = append(step.FuzzSettings.FuzzResults, fuzzResult)
 
 		fmt.Printf("Fuzz result for '%s': status=%d, size=%d, time=%dms\n",
@@ -345,7 +334,7 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 
 	fmt.Printf("Fuzzing completed with %d results\n", len(step.FuzzSettings.FuzzResults))
 
-	result.Transaction = createSampleTransaction(step, processedMethod, processedURL, processedHost, step.FuzzSettings.FuzzResults)
+	result.Transaction = createSampleTransaction(step, step.FuzzSettings.FuzzResults)
 	result.ActualRawRequest = step.Request.Dump
 
 	TrackFuzzingCompleted("", step.ID, len(step.FuzzSettings.FuzzResults), cancelled)
@@ -354,38 +343,38 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 }
 
 // executeSingleFuzzRequest executes a single fuzz request
-func (e *GleipFlowExecutor) executeSingleFuzzRequest(step *RequestStep, word, baseRawRequest, processedMethod, processedURL, processedHost string) FuzzResult {
-	fuzzedRawRequest := strings.ReplaceAll(baseRawRequest, "{{fuzz}}", word)
+func (e *GleipFlowExecutor) executeSingleFuzzRequest(step *RequestStep, ctx *ExecutionContext) FuzzResult {
+	timeout := 10 * time.Second
+	fuzzWord := step.FuzzSettings.CurrentWordlist[0]
 
-	if step.RecalculateContentLength {
-		_, bodyOfFuzzedRequest := network.SplitRawRequest(fuzzedRawRequest)
-		newContentLength := len(bodyOfFuzzedRequest)
-		fuzzedRawRequest = network.UpdateContentLengthInRawRequest(fuzzedRawRequest, newContentLength)
+	options := RequestExecutionOptions{
+		VariableProcessor: func(rawRequest string) string {
+			// First process all normal variables
+			processedRequest := e.variableProcessor.ProcessVariables(rawRequest, ctx.Variables)
+			// Then replace the fuzz placeholder
+			return strings.ReplaceAll(processedRequest, "{{fuzz}}", fuzzWord)
+		},
+		Timeout:           &timeout,
+		RecalculateLength: step.RecalculateContentLength,
+		GunzipResponse:    step.GunzipResponse,
+		AdditionalMetadata: map[string]interface{}{
+			"fuzzWord": fuzzWord,
+		},
 	}
 
-	startTime := time.Now()
-
-	// Create the request object for sending
-	requestForSending := network.HTTPRequest{
-		Host: processedHost,
-		TLS:  step.Request.TLS,
-		Dump: fuzzedRawRequest,
-	}
-
-	transaction, err := e.requestSender.SendRawRequestWithTimeout(requestForSending, step.GunzipResponse, 10*time.Second)
-	executionTime := time.Since(startTime).Milliseconds()
+	result := e.executeRequestWithOptions(step, options)
 
 	var fuzzResult FuzzResult
-	fuzzResult.Word = word
-	fuzzResult.Request = fuzzedRawRequest
-	fuzzResult.Time = executionTime
+	fuzzResult.Word = fuzzWord
+	fuzzResult.Request = result.ActualRawRequest
+	fuzzResult.Time = result.ExecutionTime.Milliseconds()
 
-	if err != nil {
-		fmt.Printf("Fuzzing error with word '%s': %v\n", word, err)
-	} else if transaction != nil && transaction.Response != nil {
-		fuzzResult.Response = transaction.Response.Dump
-		fuzzResult.StatusCode = transaction.Response.StatusCode()
-		fuzzResult.Size = len(transaction.Response.Dump)
+	if result.Error != nil {
+		fmt.Printf("Fuzzing error with word '%s': %v\n", fuzzWord, result.Error)
+	} else if result.Transaction != nil && result.Transaction.Response != nil {
+		fuzzResult.Response = result.Transaction.Response.Dump
+		fuzzResult.StatusCode = result.Transaction.Response.StatusCode()
+		fuzzResult.Size = len(result.Transaction.Response.Dump)
 	}
 
 	return fuzzResult
@@ -422,6 +411,48 @@ func (e *GleipFlowExecutor) executeScriptStep(step *ScriptStep, ctx *ExecutionCo
 	}
 
 	result.Variables = extractedVars
+	return result
+}
+
+// executeChefStep executes a chef step
+func (e *GleipFlowExecutor) executeChefStep(step *chef.ChefStep, ctx *ExecutionContext) ExecutionResult {
+	result := ExecutionResult{
+		StepID:   step.ID,
+		StepName: step.Name,
+		StepType: "chef",
+		Success:  true,
+	}
+
+	// Get the input value from variables
+	inputValue, exists := ctx.Variables[step.InputVariable]
+	if !exists {
+		result.Success = false
+		result.ErrorMessage = fmt.Sprintf("Input variable '%s' not found", step.InputVariable)
+		TrackError("chef", result.ErrorMessage)
+		return result
+	}
+
+	// Execute the chef step
+	outputValue, err := chef.ExecuteChefStep(step, inputValue)
+	if err != nil {
+		result.Success = false
+		result.ErrorMessage = fmt.Sprintf("Chef step execution failed: %v", err)
+		TrackError("chef", result.ErrorMessage)
+		TrackChefStepExecuted("", step.ID, len(step.Actions), false)
+		return result
+	}
+
+	// Set the output variable
+	if step.OutputVariable != "" {
+		extractedVars := make(map[string]string)
+		extractedVars[step.OutputVariable] = outputValue
+		ctx.SetVariable(step.OutputVariable, outputValue, "chef step execution")
+		result.Variables = extractedVars
+	}
+
+	// Track successful chef step execution
+	TrackChefStepExecuted("", step.ID, len(step.Actions), true)
+
 	return result
 }
 
@@ -473,6 +504,8 @@ func getStepID(step GleipFlowStep) string {
 		return step.RequestStep.ID
 	} else if step.StepType == "script" && step.ScriptStep != nil {
 		return step.ScriptStep.ID
+	} else if step.StepType == "chef" && step.ChefStep != nil {
+		return step.ChefStep.ID
 	}
 	return ""
 }
@@ -482,11 +515,13 @@ func getStepName(step GleipFlowStep) string {
 		return step.RequestStep.Name
 	} else if step.StepType == "script" && step.ScriptStep != nil {
 		return step.ScriptStep.Name
+	} else if step.StepType == "chef" && step.ChefStep != nil {
+		return step.ChefStep.Name
 	}
 	return "Unknown"
 }
 
-func createSampleTransaction(step *RequestStep, processedMethod, processedURL, processedHost string, fuzzResults []FuzzResult) *network.HTTPTransaction {
+func createSampleTransaction(step *RequestStep, fuzzResults []FuzzResult) *network.HTTPTransaction {
 	if len(fuzzResults) == 0 {
 		return nil
 	}
@@ -708,4 +743,180 @@ func (e *DefaultEventEmitter) EmitFuzzUpdate(stepId string, fuzzResults []FuzzRe
 		runtime.EventsEmit(e.app.ctx, "gleipFlow:fuzzUpdate", eventData)
 		fmt.Printf("Emitted gleipFlow:fuzzUpdate event with %d results\n", len(fuzzResults))
 	}
+}
+
+// RequestExecutionOptions configures how a request should be executed
+type RequestExecutionOptions struct {
+	VariableProcessor  func(string) string    // Function to process variables in the request
+	Timeout            *time.Duration         // Optional timeout (nil for default)
+	RecalculateLength  bool                   // Whether to recalculate Content-Length
+	GunzipResponse     bool                   // Whether to gunzip the response
+	AdditionalMetadata map[string]interface{} // Additional metadata for result
+}
+
+// RequestExecutionResult contains the result of request execution
+type RequestExecutionResult struct {
+	ActualRawRequest string
+	Transaction      *network.HTTPTransaction
+	Error            error
+	ExecutionTime    time.Duration
+	Metadata         map[string]interface{}
+}
+
+// executeRequestWithOptions is a generalized request execution function
+func (e *GleipFlowExecutor) executeRequestWithOptions(step *RequestStep, options RequestExecutionOptions) RequestExecutionResult {
+	startTime := time.Now()
+
+	// Apply variable processing
+	var processedRawRequest string
+	if options.VariableProcessor != nil {
+		processedRawRequest = options.VariableProcessor(step.Request.Dump)
+	} else {
+		processedRawRequest = step.Request.Dump
+	}
+
+	actualRawRequest := step.Request.Dump
+
+	// Handle content length recalculation
+	if options.RecalculateLength {
+		_, bodyOfProcessedRequest := http_utils.SplitRawRequest(processedRawRequest)
+		newContentLength := len(bodyOfProcessedRequest)
+		actualRawRequest = http_utils.UpdateContentLengthInRawRequest(actualRawRequest, newContentLength)
+		processedRawRequest = http_utils.UpdateContentLengthInRawRequest(processedRawRequest, newContentLength)
+	}
+
+	// Create the request object for sending
+	requestForSending := network.HTTPRequest{
+		Host: step.Request.Host,
+		TLS:  step.Request.TLS,
+		Dump: processedRawRequest,
+	}
+
+	// Execute request with appropriate timeout
+	var transaction *network.HTTPTransaction
+	var err error
+
+	if options.Timeout != nil {
+		transaction, err = e.requestSender.SendRawRequestWithTimeout(requestForSending, options.GunzipResponse, *options.Timeout)
+	} else {
+		transaction, err = e.requestSender.SendRawRequest(requestForSending, options.GunzipResponse)
+	}
+
+	executionTime := time.Since(startTime)
+
+	return RequestExecutionResult{
+		ActualRawRequest: actualRawRequest,
+		Transaction:      transaction,
+		Error:            err,
+		ExecutionTime:    executionTime,
+		Metadata:         options.AdditionalMetadata,
+	}
+}
+
+// GetAvailableVariableValuesForStep returns all variables and their values available at a given step index
+// This includes gleipflow variables and variables extracted from previous steps
+func (e *GleipFlowExecutor) GetAvailableVariableValuesForStep(gleipFlow *GleipFlow, stepIndex int) map[string]string {
+	// Simulate execution context to get variables from previous steps
+	ctx := NewExecutionContext()
+	ctx.Variables = make(map[string]string)
+
+	// Copy gleipflow variables to context (these have actual values)
+	for k, v := range gleipFlow.Variables {
+		ctx.Variables[k] = v
+	}
+
+	// Execute previous steps to get their extracted variables
+	for i := 0; i < stepIndex && i < len(gleipFlow.Steps); i++ {
+		step := gleipFlow.Steps[i]
+
+		// Only consider selected steps for variable extraction
+		if !step.Selected {
+			continue
+		}
+
+		// Process different step types for variable extraction
+		switch step.StepType {
+		case "request":
+			if step.RequestStep != nil {
+				// For variables that will be extracted from requests, we can't predict their values
+				// without executing the request, so we don't add them to the context
+				// Only the gleipflow variables (which have actual values) will be available
+			}
+		case "chef":
+			if step.ChefStep != nil && step.ChefStep.OutputVariable != "" {
+				// For variables that will be output from chef steps, we can't predict their values
+				// without executing the chef step, so we don't add them to the context
+				// Only the gleipflow variables (which have actual values) will be available
+			}
+		case "script":
+			if step.ScriptStep != nil {
+				// For script steps, we can't predict what variables they'll create
+				// without executing the script, so we don't add them to the context
+			}
+		}
+	}
+
+	return ctx.Variables
+}
+
+// GetAvailableVariablesForStep returns all variables available at a given step index
+// This includes gleipflow variables and variables extracted from previous steps
+func (e *GleipFlowExecutor) GetAvailableVariablesForStep(gleipFlow *GleipFlow, stepIndex int) []string {
+	availableVars := make(map[string]bool)
+
+	// Add gleipflow global variables
+	for varName := range gleipFlow.Variables {
+		availableVars[varName] = true
+	}
+
+	// Simulate execution context to get variables from previous steps
+	ctx := NewExecutionContext()
+	ctx.Variables = make(map[string]string)
+
+	// Copy gleipflow variables to context
+	for k, v := range gleipFlow.Variables {
+		ctx.Variables[k] = v
+	}
+
+	// Execute previous steps to get their extracted variables
+	for i := 0; i < stepIndex && i < len(gleipFlow.Steps); i++ {
+		step := gleipFlow.Steps[i]
+
+		// Only consider selected steps for variable extraction
+		if !step.Selected {
+			continue
+		}
+
+		// Process different step types for variable extraction
+		switch step.StepType {
+		case "request":
+			if step.RequestStep != nil {
+				// Extract variables from this request step (simulation)
+				for _, extract := range step.RequestStep.VariableExtracts {
+					// Add the variable name to available variables
+					// We don't execute the actual request, just make the variable name available
+					availableVars[extract.Name] = true
+				}
+			}
+		case "script":
+			if step.ScriptStep != nil {
+				// For script steps, we can't easily predict what variables they'll create
+				// without executing the script, so we'll skip this for now
+				// In a future enhancement, we could parse the script for setVar() calls
+			}
+		case "chef":
+			if step.ChefStep != nil && step.ChefStep.OutputVariable != "" {
+				// Add the output variable from chef steps
+				availableVars[step.ChefStep.OutputVariable] = true
+			}
+		}
+	}
+
+	// Convert map keys to slice
+	var result []string
+	for varName := range availableVars {
+		result = append(result, varName)
+	}
+
+	return result
 }

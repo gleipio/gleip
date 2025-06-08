@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"Gleip/backend/chef"
 	"Gleip/backend/network"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 var fuzzCancellation = make(chan struct{})
 var fuzzMutex sync.Mutex
 
-// SaveGleipFlow saves a request gleipFlow
+// SaveGleipFlow saves or updates a gleipFlow
 func (a *App) SaveGleipFlow(gleipFlow GleipFlow) (GleipFlow, error) {
 	fmt.Printf("DEBUG: SaveGleipFlow called with flow ID: %s, name: %s\n", gleipFlow.ID, gleipFlow.Name)
 
@@ -25,9 +26,6 @@ func (a *App) SaveGleipFlow(gleipFlow GleipFlow) (GleipFlow, error) {
 		gleipFlow.ID = uuid.New().String()
 		fmt.Printf("DEBUG: Generated new ID for flow: %s\n", gleipFlow.ID)
 		TrackFlowCreated(gleipFlow.ID, "custom")
-	} else {
-		// Track update
-		// We don't need to track individual flow updates
 	}
 
 	// Ensure sortingIndex is valid (>= 1)
@@ -43,8 +41,18 @@ func (a *App) SaveGleipFlow(gleipFlow GleipFlow) (GleipFlow, error) {
 	}
 
 	a.gleipFlowsMutex.Lock()
+
+	// If flow exists, preserve execution results
+	if existingFlow, exists := a.gleipFlowsCache[gleipFlow.ID]; exists {
+		// Preserve execution results from existing flow
+		gleipFlow.ExecutionResults = existingFlow.ExecutionResults
+		fmt.Printf("DEBUG: Preserved %d execution results\n", len(gleipFlow.ExecutionResults))
+	}
+
 	// Update the cache
 	a.gleipFlowsCache[gleipFlow.ID] = &gleipFlow
+	fmt.Printf("DEBUG: Updated cache for flow: %s\n", gleipFlow.ID)
+
 	a.gleipFlowsMutex.Unlock()
 
 	// Also update the project's GleipFlows array to keep them in sync
@@ -54,20 +62,26 @@ func (a *App) SaveGleipFlow(gleipFlow GleipFlow) (GleipFlow, error) {
 		found := false
 		for i, projectGleipFlow := range a.currentProject.GleipFlows {
 			if projectGleipFlow.ID == gleipFlow.ID {
-				// Update existing
+				// Preserve execution results when updating project data
+				gleipFlow.ExecutionResults = projectGleipFlow.ExecutionResults
 				a.currentProject.GleipFlows[i] = &gleipFlow
 				found = true
+				fmt.Printf("DEBUG: Updated project flow at index %d\n", i)
 				break
 			}
 		}
+
 		if !found {
-			// Add new GleipFlow to project
+			// Add new GleipFlow to the project
 			a.currentProject.GleipFlows = append(a.currentProject.GleipFlows, &gleipFlow)
+			fmt.Printf("DEBUG: Added new flow to project\n")
 		}
 	}
+
 	a.projectMutex.Unlock()
 
 	// Request auto-save to persist the project changes
+	fmt.Printf("DEBUG: Requesting auto-save with component 'gleip_flows'\n")
 	a.requestAutoSaveWithComponent("gleip_flows")
 
 	return gleipFlow, nil
@@ -521,8 +535,8 @@ func (a *App) CopyRequestToCurrentFlow(requestID string, collectionID ...string)
 	// Track step addition
 	TrackFlowStepExecuted(targetFlow.ID, "request", true)
 
-	// Save the flow
-	_, err = a.SaveGleipFlow(*targetFlow)
+	// AUTOMATICALLY save the flow
+	err = a.UpdateGleipFlow(*targetFlow)
 	if err != nil {
 		// Track error
 		TrackError("clipboard", "save_flow_error")
@@ -580,8 +594,8 @@ func (a *App) CreateGleipFlow(name string) (GleipFlow, error) {
 	// Track creation
 	TrackFlowCreated(newFlow.ID, "empty")
 
-	// Save the new flow (this will also add it to the project)
-	savedFlow, err := a.SaveGleipFlow(newFlow)
+	// AUTOMATICALLY save the new flow (this will also add it to the project)
+	err := a.UpdateGleipFlow(newFlow)
 	if err != nil {
 		return GleipFlow{}, err
 	}
@@ -589,14 +603,14 @@ func (a *App) CreateGleipFlow(name string) (GleipFlow, error) {
 	// Set as the selected GleipFlow in the project
 	a.projectMutex.Lock()
 	if a.currentProject != nil {
-		a.currentProject.SelectedGleipFlowID = savedFlow.ID
+		a.currentProject.SelectedGleipFlowID = newFlow.ID
 	}
 	a.projectMutex.Unlock()
 
 	// Request auto-save to persist the selection
 	a.requestAutoSaveWithComponent("project_meta")
 
-	return savedFlow, nil
+	return newFlow, nil
 }
 
 // AddStepToGleipFlow adds a new step to an existing GleipFlow
@@ -648,6 +662,22 @@ func (a *App) AddStepToGleipFlow(gleipFlowID string, stepType string) (*GleipFlo
 			Name:    fmt.Sprintf("Script %d", scriptCount+1),
 			Content: "// Write your JavaScript code here\n// Examples:\n// console.log(\"Hello world\");\n// setVar(\"myVar\", \"myValue\");\n// const value = getVar(\"anotherVar\");\n",
 		}
+	} else if stepType == "chef" {
+		// Count existing chef steps
+		chefCount := 0
+		for _, step := range gleipFlow.Steps {
+			if step.StepType == "chef" {
+				chefCount++
+			}
+		}
+
+		newStep.ChefStep = &chef.ChefStep{
+			ID:             uuid.New().String(),
+			Name:           fmt.Sprintf("Chef %d", chefCount+1),
+			InputVariable:  "",
+			Actions:        []chef.ChefAction{},
+			OutputVariable: "",
+		}
 	} else {
 		// Track error
 		TrackError("gleipflow", "invalid_step_type")
@@ -660,8 +690,8 @@ func (a *App) AddStepToGleipFlow(gleipFlowID string, stepType string) (*GleipFlo
 	// Track step addition
 	TrackFlowStepExecuted(gleipFlowID, stepType, true)
 
-	// Save the updated flow (this will update both cache and project)
-	_, err = a.SaveGleipFlow(*gleipFlow)
+	// AUTOMATICALLY save the updated flow (this will update both cache and project)
+	err = a.UpdateGleipFlow(*gleipFlow)
 	if err != nil {
 		// Track error
 		TrackError("gleipflow", "save_flow_error")
@@ -737,21 +767,34 @@ func (a *App) DuplicateGleipFlow(originalID string) (GleipFlow, error) {
 			}
 		}
 
+		if step.ChefStep != nil {
+			// Deep copy chef step
+			newStep.ChefStep = &chef.ChefStep{
+				ID:             uuid.New().String(), // New ID for the duplicated step
+				Name:           step.ChefStep.Name,
+				InputVariable:  step.ChefStep.InputVariable,
+				OutputVariable: step.ChefStep.OutputVariable,
+				Actions:        make([]chef.ChefAction, len(step.ChefStep.Actions)),
+			}
+			// Deep copy actions
+			copy(newStep.ChefStep.Actions, step.ChefStep.Actions)
+		}
+
 		duplicatedFlow.Steps[i] = newStep
 	}
 
 	// Track duplication
 	TrackFlowCreated(duplicatedFlow.ID, "duplicate")
 
-	// Save the duplicated flow
-	savedFlow, err := a.SaveGleipFlow(duplicatedFlow)
+	// AUTOMATICALLY save the duplicated flow
+	err = a.UpdateGleipFlow(duplicatedFlow)
 	if err != nil {
 		TrackError("gleipflow", "duplicate_save_error")
 		return GleipFlow{}, fmt.Errorf("failed to save duplicated gleipFlow: %v", err)
 	}
 
-	fmt.Printf("DEBUG: Successfully duplicated flow %s to %s\n", originalID, savedFlow.ID)
-	return savedFlow, nil
+	fmt.Printf("DEBUG: Successfully duplicated flow %s to %s\n", originalID, duplicatedFlow.ID)
+	return duplicatedFlow, nil
 }
 
 // RenameGleipFlow renames an existing GleipFlow
@@ -770,8 +813,8 @@ func (a *App) RenameGleipFlow(gleipFlowID string, newName string) error {
 	// Update the name
 	gleipFlow.Name = newName
 
-	// Save the updated flow
-	_, err = a.SaveGleipFlow(*gleipFlow)
+	// AUTOMATICALLY save the updated flow
+	err = a.UpdateGleipFlow(*gleipFlow)
 	if err != nil {
 		TrackError("gleipflow", "rename_save_error")
 		return fmt.Errorf("failed to save renamed gleipFlow: %v", err)

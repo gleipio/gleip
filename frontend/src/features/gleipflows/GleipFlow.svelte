@@ -12,13 +12,12 @@
     activeGleipFlowIndex, 
     activeGleipFlow,
     activeStepIndex, 
-    executionResults, 
     isExecuting,
     expandedStepIndices,
     loadGleipFlows,
     createGleipFlow,
     deleteGleipFlow,
-    saveGleipFlow,
+    updateGleipFlow,
     addStep,
     deleteStep
   } from './store/gleipStore';
@@ -60,14 +59,14 @@
     console.log("Received fuzz update event:", event);
     const { stepId, fuzzResults } = event;
     
-    if (!$activeGleipFlow) {
+    if (!$activeGleipFlow || $activeGleipFlowIndex === null) {
       console.warn("No active GleipFlow found for fuzz update");
       return;
     }
     
     // Find the step that was updated
     const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
-    const stepIndex = currentGleipFlow.steps.findIndex(s => 
+    const stepIndex = currentGleipFlow.steps.findIndex((s: any) => 
       s.stepType === 'request' && s.requestStep && s.requestStep.id === stepId
     );
     
@@ -235,7 +234,7 @@
       }
       
       // Delete current gleipflow if there is one
-      if ($gleipFlows.length > 0 && $activeGleipFlowIndex < $gleipFlows.length) {
+      if ($gleipFlows.length > 0 && $activeGleipFlowIndex !== null && $activeGleipFlowIndex < $gleipFlows.length) {
         const currentFlow = $gleipFlows[$activeGleipFlowIndex];
         deleteGleipFlow(currentFlow.id);
       }
@@ -258,7 +257,7 @@
         const newStep = createRequestStepFromClipboard(request);
         
         // Update the request name to include index
-        if (newStep.requestStep) {
+        if (newStep.requestStep && $activeGleipFlowIndex !== null) {
           const requestCount = $gleipFlows[$activeGleipFlowIndex].steps.filter(s => s.stepType === 'request').length + 2;
           newStep.requestStep.name = `Request ${requestCount}`;
         }
@@ -278,7 +277,7 @@
         ]);
         
         // Save the gleip
-        saveGleipFlow(updatedGleipFlow).then(() => {
+        updateGleipFlow(updatedGleipFlow).then(() => {
           // Set the new step as active
           activeStepIndex.set(updatedGleipFlow.steps.length - 1);
           
@@ -312,10 +311,14 @@
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex > 0 ? stepIndex - 1 : null;
     
-    if ($expandedStepIndices.includes(stepIndex)) {
-      expandedStepIndices.set($expandedStepIndices.filter(i => i !== stepIndex));
+    if ($expandedStepIndices.has(stepIndex)) {
+      const newSet = new Set($expandedStepIndices);
+      newSet.delete(stepIndex);
+      expandedStepIndices.set(newSet);
     } else {
-      expandedStepIndices.set([...$expandedStepIndices, stepIndex]);
+      const newSet = new Set($expandedStepIndices);
+      newSet.add(stepIndex);
+      expandedStepIndices.set(newSet);
       if (actualIndex !== null) {
         activeStepIndex.set(actualIndex);
       }
@@ -332,7 +335,7 @@
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
     
-    if (actualIndex !== undefined && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
+    if (actualIndex !== undefined && $activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
       const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
       const updatedSteps = [...currentGleipFlow.steps];
       
@@ -352,7 +355,7 @@
         ...$gleipFlows.slice($activeGleipFlowIndex + 1)
       ]);
       
-      saveGleipFlow(updatedGleipFlow);
+      updateGleipFlow(updatedGleipFlow);
     }
   }
 
@@ -362,7 +365,7 @@
     
     if (stepIndex === 0 && stepType === 'variables') {
       // Handle variables step specially - update the gleip's variables
-      if (updates.variables !== undefined) {
+      if (updates.variables !== undefined && $activeGleipFlowIndex !== null) {
         const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
         const updatedGleipFlow = {
           ...currentGleipFlow,
@@ -375,7 +378,7 @@
           ...$gleipFlows.slice($activeGleipFlowIndex + 1)
         ]);
         
-        saveGleipFlow(updatedGleipFlow);
+        updateGleipFlow(updatedGleipFlow);
       }
       return;
     }
@@ -383,7 +386,7 @@
     // Adjust index for regular steps
     const actualIndex = stepIndex - 1;
     
-    if (actualIndex >= 0 && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
+    if (actualIndex >= 0 && $activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
       const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
       const updatedSteps = [...currentGleipFlow.steps];
       const step = {...updatedSteps[actualIndex]};
@@ -396,6 +399,11 @@
       } else if (stepType === 'script' && step.scriptStep) {
         step.scriptStep = {
           ...step.scriptStep,
+          ...updates
+        };
+      } else if (stepType === 'chef' && step.chefStep) {
+        step.chefStep = {
+          ...step.chefStep,
           ...updates
         };
       }
@@ -413,7 +421,7 @@
         ...$gleipFlows.slice($activeGleipFlowIndex + 1)
       ]);
       
-      saveGleipFlow(updatedGleipFlow);
+      updateGleipFlow(updatedGleipFlow);
     }
   }
 
@@ -431,14 +439,14 @@
 
   // Get execution result for a step
   function getStepExecutionResult(step: GleipFlowStep) {
-    if (!step) return undefined;
+    if (!step || !$activeGleipFlow) return undefined;
     
     const stepId = step.stepType === 'request' ? step.requestStep?.id : 
                  step.stepType === 'script' ? step.scriptStep?.id : 
-                 $gleipFlows[$activeGleipFlowIndex].id + '-variables';
+                 $activeGleipFlow.id + '-variables';
     
-    if (stepId) {
-      const result = $executionResults.find(r => r.stepId === stepId);
+    if (stepId && $activeGleipFlow.executionResults) {
+      const result = $activeGleipFlow.executionResults.find(r => r.stepId === stepId);
       return result;
     }
     
@@ -494,7 +502,7 @@
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
     
-    if (actualIndex !== undefined && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
+    if (actualIndex !== undefined && $activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
       const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
       const step = currentGleipFlow.steps[actualIndex];
       
@@ -534,7 +542,7 @@
             ]);
             
             // Save the updated flow
-            await saveGleipFlow(updatedGleipFlow);
+            await updateGleipFlow(updatedGleipFlow);
           }
           
           console.log("Starting fuzzing for step ID:", step.requestStep.id);
@@ -568,7 +576,7 @@
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
     
-    if (actualIndex !== undefined && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
+    if (actualIndex !== undefined && $activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
       const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
       const step = currentGleipFlow.steps[actualIndex];
       
@@ -753,9 +761,9 @@
         </button>
         <button 
           class="px-3 py-1 bg-[var(--color-midnight-accent)] hover:bg-[var(--color-midnight-accent)]/80 text-[var(--color-button-text)] rounded text-sm"
-          on:click={() => addStep('script')}
+          on:click={() => addStep('chef')}
         >
-          Add Script
+          Add Chef
         </button>
         <button 
           class="px-3 py-1 bg-[var(--color-midnight-accent)] hover:bg-[var(--color-midnight-accent)]/80 text-[var(--color-button-text)] rounded text-sm"
@@ -765,11 +773,11 @@
         </button>
       </div>
       
-      {#if $gleipFlows.length > 0 && $activeGleipFlowIndex < $gleipFlows.length}
+      {#if $gleipFlows.length > 0 && $activeGleipFlowIndex !== null && $activeGleipFlowIndex < $gleipFlows.length}
         <button 
           class="px-3 py-1 bg-[var(--color-secondary-accent)] hover:bg-opacity-90 text-[var(--color-button-text)] rounded text-sm"
           on:click={executeGleipFlow}
-          disabled={$isExecuting || $gleipFlows[$activeGleipFlowIndex].steps.length === 0}
+          disabled={$isExecuting || ($activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex].steps.length === 0)}
         >
           {$isExecuting ? 'Executing...' : 'Execute GleipFlow'}
         </button>
@@ -778,15 +786,16 @@
     
     <!-- Scrollable container for cards -->
     <div class="flex-1 overflow-x-scroll overflow-y-hidden scrollbar-visible">
-      {#if $gleipFlows.length > 0 && $activeGleipFlowIndex < $gleipFlows.length}
+      {#if $gleipFlows.length > 0 && $activeGleipFlowIndex !== null && $activeGleipFlowIndex < $gleipFlows.length}
         <div class="flex flex-row space-x-3 py-1 h-full">
           {#each getUISteps($gleipFlows[$activeGleipFlowIndex]) as step, index}
             <GleipStepCard
               {step}
               stepIndex={index}
-              isExpanded={$expandedStepIndices.includes(index)}
+              isExpanded={$expandedStepIndices.has(index)}
               executionResult={getStepExecutionResult(step)}
               isExecuting={$isExecuting}
+              gleipFlowID={$gleipFlows[$activeGleipFlowIndex].id}
               on:toggleExpand={handleToggleExpand}
               on:deleteStep={handleDeleteStep}
               on:updateSelection={handleUpdateSelection}
@@ -934,4 +943,4 @@
   :global(.http-body) {
     color: #e5e7eb; /* gray-200 */
   }
-</style> 
+</style>

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - '20*'
+  workflow_dispatch:
 
 jobs:
   release:
@@ -90,182 +91,22 @@ jobs:
         MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
 
-    - name: Sign macOS DMG files
-      if: env.MACOS_CERTIFICATE != ''
+    - name: Use build tool to publish release
       run: |
-        echo "🔏 Signing macOS DMG files..."
-        
-        # Find and sign all DMG files
-        find ./release_temp -name "*.dmg" -type f | while read dmg_file; do
-          echo "📱 Processing: $(basename "$dmg_file")"
-          
-          # Create temporary directories
-          temp_dir="./temp_$(basename "$dmg_file" .dmg)"
-          mount_point="$temp_dir/mount"
-          extract_dir="$temp_dir/extract"
-          
-          mkdir -p "$mount_point" "$extract_dir"
-          
-          # Mount DMG
-          if hdiutil attach "$dmg_file" -mountpoint "$mount_point" -nobrowse -quiet; then
-            echo "  Mounted DMG successfully"
-            
-            # Find .app bundle
-            app_path=$(find "$mount_point" -name "*.app" -type d | head -1)
-            if [ -n "$app_path" ]; then
-              echo "  Found app: $(basename "$app_path")"
-              
-              # Copy app to extract directory
-              cp -R "$app_path" "$extract_dir/"
-              
-              # Unmount DMG
-              hdiutil detach "$mount_point" -quiet
-              
-              # Sign the app
-              app_name=$(basename "$app_path")
-              extracted_app="$extract_dir/$app_name"
-              
-              echo "  Signing application..."
-              if codesign --force --deep --sign "Developer ID Application" "$extracted_app" 2>/dev/null; then
-                echo "  ✅ Signed with Developer ID Application"
-              else
-                echo "  ⚠️ Developer ID signing failed, trying with any available identity..."
-                codesign --force --deep --sign "-" "$extracted_app"
-              fi
-              
-              # Verify signature
-              codesign --verify --verbose "$extracted_app"
-              
-              # Create new signed DMG
-              echo "  Creating signed DMG..."
-              if command -v create-dmg >/dev/null 2>&1; then
-                create-dmg --volname "Gleip Installer" --window-size 800 400 --app-drop-link 600 185 "$dmg_file" "$extract_dir" || \
-                (ln -s /Applications "$extract_dir/Applications" && hdiutil create -volname "Gleip Installer" -srcfolder "$extract_dir" -ov -format UDZO "$dmg_file")
-              else
-                ln -s /Applications "$extract_dir/Applications"
-                hdiutil create -volname "Gleip Installer" -srcfolder "$extract_dir" -ov -format UDZO "$dmg_file"
-              fi
-              
-              echo "  ✅ DMG signed: $(basename "$dmg_file")"
-            else
-              echo "  ❌ No .app bundle found in DMG"
-              hdiutil detach "$mount_point" -quiet
-            fi
-          else
-            echo "  ❌ Failed to mount DMG"
-          fi
-          
-          # Cleanup
-          rm -rf "$temp_dir"
-        done
-        
-        echo "✅ macOS DMG signing complete"
+        echo "🚀 Using build tool to process artifacts and create release..."
+        go run cmd/build-tool/main.go publish
       env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
 
-    - name: Prepare release artifacts
-      id: artifacts
-      run: |
-        echo "📦 Preparing release artifacts..."
-        
-        # Create final artifacts directory
-        mkdir -p ./final_artifacts
-        
-        # Debug: Show all files in release_temp
-        echo "All files in release_temp:"
-        find ./release_temp -type f | head -20
-        
-        # Collect all release artifacts
-        find ./release_temp -type f \( \
-          -name "*.exe" -o \
-          -name "*.dmg" -o \
-          -name "*.tar.gz" -o \
-          -name "gleip-*" \
-        \) | while read file; do
-          if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            echo "Processing: $filename"
-            
-            # Copy all artifacts directly - they should already have correct names from build.yml
-            cp "$file" ./final_artifacts/
-            echo "  📄 $filename"
-          fi
-        done
-        
-        # Also look for plain executables named "Gleip" - they should already be renamed by build.yml
-        find ./release_temp -name "Gleip" -type f -executable | while read file; do
-          echo "Found plain Gleip executable: $file"
-          # These should not exist if build.yml is working correctly
-          echo "  ⚠️  Unexpected plain 'Gleip' executable found - this suggests build.yml naming failed"
-        done
-        
-        # Count artifacts
-        ARTIFACT_COUNT=$(find ./final_artifacts -type f | wc -l)
-        echo "ARTIFACT_COUNT=$ARTIFACT_COUNT" >> $GITHUB_OUTPUT
-        echo "Total artifacts prepared: $ARTIFACT_COUNT"
-        
-        if [ "$ARTIFACT_COUNT" -eq 0 ]; then
-          echo "❌ No artifacts found to release"
-          exit 1
-        fi
 
-    - name: Create release notes
-      id: release_notes
-      run: |
-        if [ -f "./RELEASE.txt" ]; then
-          echo "📝 Using RELEASE.txt for release notes"
-          NOTES_FILE="./RELEASE.txt"
-        else
-          echo "📝 Generating release notes from tag"
-          cat > ./temp_release_notes.txt << EOF
-        # Gleip ${{ steps.version.outputs.VERSION }}
-        
-        This release was automatically created from tag ${{ steps.version.outputs.VERSION }}.
-        
-        ## Downloads
-        
-        Choose the appropriate version for your platform:
-        - **Windows**: \`gleip-*-windows-*.exe\`
-        - **macOS**: \`gleip-*-macos-*.dmg\`
-        - **Linux**: \`gleip-*-linux-*\`
-        
-        ## Installation
-        
-        ### Windows
-        Download and run the \`.exe\` file.
-        
-        ### macOS
-        Download the \`.dmg\` file, open it, and drag Gleip to your Applications folder.
-        
-        ### Linux
-        Download the appropriate Linux binary, make it executable with \`chmod +x\`, and run it.
-        EOF
-          NOTES_FILE="./temp_release_notes.txt"
-        fi
-        
-        echo "NOTES_FILE=$NOTES_FILE" >> $GITHUB_OUTPUT
-
-    - name: Create GitHub Release
-      run: |
-        echo "🚀 Creating GitHub release ${{ steps.version.outputs.VERSION }}"
-        
-        # Create the release
-        gh release create "${{ steps.version.outputs.VERSION }}" \
-          --title "Gleip ${{ steps.version.outputs.VERSION }}" \
-          --notes-file "${{ steps.release_notes.outputs.NOTES_FILE }}" \
-          ./final_artifacts/*
-        
-        echo "✅ Release created successfully!"
-        echo "🌐 View at: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.VERSION }}"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Cleanup
       if: always()
       run: |
         # Clean up temporary files and directories
-        rm -rf ./release_temp ./final_artifacts ./temp_*.txt
+        rm -rf ./release_temp ./build ./temp_*.txt
         
         # Clean up keychain if it was created
         if security list-keychains | grep -q "release.keychain"; then

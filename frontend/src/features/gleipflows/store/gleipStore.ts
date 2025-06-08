@@ -1,18 +1,17 @@
 import { writable, derived, get } from 'svelte/store';
-import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID } from '../../../../wailsjs/go/backend/App';
+import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow } from '../../../../wailsjs/go/backend/App';
 import { backend } from '../../../../wailsjs/go/models';
 import type { GleipFlow, ExecutionResult, GleipFlowStep } from '../types';
 import { generateRawHttpRequest } from '../utils/httpUtils';
 
 // Store state
 export const gleipFlows = writable<GleipFlow[]>([]);
-export const activeGleipFlowIndex = writable<number>(0);
+export const activeGleipFlowIndex = writable<number | null>(null);
+export const activeStepIndex = writable<number | null>(null);
+export const isExecuting = writable<boolean>(false);
 export const isCreatingGleipFlow = writable<boolean>(false);
 export const newGleipFlowName = writable<string>('');
-export const activeStepIndex = writable<number | null>(null);
-export const executionResults = writable<ExecutionResult[]>([]);
-export const isExecuting = writable<boolean>(false);
-export const expandedStepIndices = writable<number[]>([]);
+export const expandedStepIndices = writable<Set<number>>(new Set());
 
 export const updatedRequestIds = writable<Set<string>>(new Set());
 
@@ -20,7 +19,7 @@ export const updatedRequestIds = writable<Set<string>>(new Set());
 export const activeGleipFlow = derived(
   [gleipFlows, activeGleipFlowIndex], 
   ([$gleipFlows, $activeGleipFlowIndex]) => {
-    if ($gleipFlows.length === 0 || $activeGleipFlowIndex >= $gleipFlows.length) return null;
+    if ($gleipFlows.length === 0 || $activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return null;
     return $gleipFlows[$activeGleipFlowIndex];
   }
 );
@@ -52,11 +51,14 @@ export const loadGleipFlows = async () => {
       let variables: Record<string, string> = gleipFlow.variables || {};
       let gleipSteps: any[] = gleipFlow.steps ? [...gleipFlow.steps] : [];
       
+      console.log(`Loading flow ${gleipFlow.id} with ${gleipFlow.executionResults?.length || 0} execution results`);
+      
       return {
         id: gleipFlow.id,
         name: gleipFlow.name,
         variables: variables,
         sortingIndex: gleipFlow.sortingIndex || 0,
+        executionResults: gleipFlow.executionResults || [], // Include execution results from backend
         steps: gleipSteps.map(step => {
           let convertedStep: GleipFlowStep = {
             stepType: step.stepType,
@@ -94,6 +96,19 @@ export const loadGleipFlows = async () => {
             };
           }
           
+          if (step.chefStep) {
+            // Preserve the original step ID or generate a new one if missing
+            const stepId = step.chefStep.id || crypto.randomUUID();
+            
+            convertedStep.chefStep = {
+              id: stepId,
+              name: step.chefStep.name,
+              inputVariable: step.chefStep.inputVariable,
+              actions: step.chefStep.actions || [],
+              outputVariable: step.chefStep.outputVariable
+            };
+          }
+          
           return convertedStep;
         })
       };
@@ -113,7 +128,7 @@ export const loadGleipFlows = async () => {
     gleipFlows.set(convertedGleipFlows);
     
     const currentActiveIndex = get(activeGleipFlowIndex);
-    if (convertedGleipFlows.length > 0 && currentActiveIndex >= convertedGleipFlows.length) {
+    if (convertedGleipFlows.length > 0 && currentActiveIndex !== null && currentActiveIndex >= convertedGleipFlows.length) {
       activeGleipFlowIndex.set(0);
     }
     
@@ -181,12 +196,12 @@ export const deleteGleipFlow = async (id: string) => {
     gleipFlows.set(filteredGleips);
     
     // Adjust the active index and update the selected GleipFlow ID
-    let newActiveIndex = currentActiveIndex;
-    if (currentActiveIndex >= filteredGleips.length) {
+    let newActiveIndex = currentActiveIndex !== null ? currentActiveIndex : 0;
+    if (newActiveIndex >= filteredGleips.length) {
       newActiveIndex = Math.max(0, filteredGleips.length - 1);
     }
     
-    activeGleipFlowIndex.set(newActiveIndex);
+    activeGleipFlowIndex.set(filteredGleips.length > 0 ? newActiveIndex : null);
     
     // Update the backend with the new selected GleipFlow ID
     if (filteredGleips.length > 0 && newActiveIndex < filteredGleips.length) {
@@ -215,37 +230,8 @@ const recalculateSortingIndices = (gleipFlows: GleipFlow[]) => {
 
 export const saveGleipFlow = async (gleipFlow: GleipFlow) => {
   try {
-    // Ensure sortingIndex is set
-    if (!gleipFlow.sortingIndex) {
-      const currentGleips = get(gleipFlows);
-      if (currentGleips.length > 0) {
-        gleipFlow.sortingIndex = Math.max(...currentGleips.map(g => g.sortingIndex)) + 1;
-      } else {
-        gleipFlow.sortingIndex = 1;
-      }
-    }
-    
-    const gleipFlowToSave = {
-      ...gleipFlow
-    };
-    
-    // Save and get the updated gleipFlow with potentially new ID
-    const savedGleipFlow = await SaveGleipFlow(backend.GleipFlow.createFrom(gleipFlowToSave));
-    
-    // If the ID changed, we need to update our store accordingly
-    if (savedGleipFlow.id !== gleipFlow.id) {
-      console.log(`GleipFlow ID changed from ${gleipFlow.id} to ${savedGleipFlow.id}`);
-      // We need to update our local store with the new ID
-      const currentGleips = get(gleipFlows);
-      const updatedGleips = currentGleips.map(g => {
-        if (g.id === gleipFlow.id) {
-          return { ...g, id: savedGleipFlow.id };
-        }
-        return g;
-      });
-      gleipFlows.set(updatedGleips);
-    }
-    
+    // Backend now handles saving automatically, but keep this for compatibility
+    console.log('saveGleipFlow called - backend should handle persistence automatically');
     return true;
   } catch (error) {
     console.error('Failed to save GleipFlow:', error);
@@ -253,7 +239,7 @@ export const saveGleipFlow = async (gleipFlow: GleipFlow) => {
   }
 };
 
-export const addStep = async (type: 'request' | 'script') => {
+export const addStep = async (type: 'request' | 'script' | 'chef') => {
   const $activeGleipFlowIndex = get(activeGleipFlowIndex);
   const $gleipFlows = get(gleipFlows);
   
@@ -264,18 +250,17 @@ export const addStep = async (type: 'request' | 'script') => {
   try {
     // Call backend to add the step
     const newStep = await AddStepToGleipFlow(gleipFlow.id, type);
+    console.log('Backend returned new step:', newStep);
     
-    // Update frontend state with the new step from backend
-    gleipFlows.update($gleipFlows => {
-      const updatedGleips = [...$gleipFlows];
-      const updatedGleipFlow = {...updatedGleips[$activeGleipFlowIndex]};
-      updatedGleipFlow.steps = [...updatedGleipFlow.steps, newStep as GleipFlowStep];
-      updatedGleips[$activeGleipFlowIndex] = updatedGleipFlow;
-      return updatedGleips;
-    });
+    // Reload entire flows from backend to ensure consistency
+    await loadGleipFlows();
     
     // Set the new step as active
-    activeStepIndex.set(gleipFlow.steps.length);
+    const updatedGleips = get(gleipFlows);
+    const updatedFlow = updatedGleips[$activeGleipFlowIndex];
+    if (updatedFlow) {
+      activeStepIndex.set(updatedFlow.steps.length - 1);
+    }
     
     return newStep;
   } catch (error) {
@@ -321,6 +306,138 @@ export const deleteStep = (index: number) => {
   return true;
 };
 
+// Chef Step Management Functions
+export const updateChefStep = async (stepIndex: number, updates: any) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
+  
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  const step = gleipFlow.steps[stepIndex];
+  
+  if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
+  
+  // Update the chef step
+  step.chefStep = { ...step.chefStep, ...updates };
+  
+  // Update store
+  gleipFlows.update($flows => {
+    const updated = [...$flows];
+    updated[$activeGleipFlowIndex] = gleipFlow;
+    return updated;
+  });
+  
+  // Save to backend
+  return await saveGleipFlow(gleipFlow);
+};
+
+export const addChefAction = async (stepIndex: number) => {
+  console.log('addChefAction called with stepIndex:', stepIndex);
+  
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  console.log('activeGleipFlowIndex:', $activeGleipFlowIndex);
+  console.log('gleipFlows length:', $gleipFlows.length);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) {
+    console.log('Invalid gleipFlowIndex');
+    return false;
+  }
+  
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  console.log('gleipFlow.steps:', gleipFlow.steps);
+  console.log('gleipFlow.steps.length:', gleipFlow.steps.length);
+  
+  // Log each step with its index and type
+  gleipFlow.steps.forEach((step, idx) => {
+    console.log(`Step ${idx}:`, step.stepType, step);
+  });
+  
+  const step = gleipFlow.steps[stepIndex];
+  
+  console.log('step:', step);
+  console.log('step.stepType:', step?.stepType);
+  console.log('step.chefStep:', step?.chefStep);
+  
+  if (!step || step.stepType !== 'chef' || !step.chefStep) {
+    console.log('Invalid step or not a chef step');
+    return false;
+  }
+  
+  const newAction = {
+    id: `action_${Date.now()}`,
+    actionType: '',
+    options: {},
+    preview: ''
+  };
+  
+  step.chefStep.actions = [...step.chefStep.actions, newAction];
+  
+  // Save to backend
+  const success = await saveGleipFlow(gleipFlow);
+  
+  // Reload from backend (source of truth)
+  if (success) {
+    await loadGleipFlows();
+  }
+  
+  return success;
+};
+
+export const removeChefAction = async (stepIndex: number, actionIndex: number) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
+  
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  const step = gleipFlow.steps[stepIndex];
+  
+  if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
+  
+  step.chefStep.actions = step.chefStep.actions.filter((_, i) => i !== actionIndex);
+  
+  // Save to backend
+  const success = await saveGleipFlow(gleipFlow);
+  
+  // Reload from backend (source of truth)
+  if (success) {
+    await loadGleipFlows();
+  }
+  
+  return success;
+};
+
+export const updateChefAction = async (stepIndex: number, actionIndex: number, updates: any) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
+  
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  const step = gleipFlow.steps[stepIndex];
+  
+  if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
+  
+  if (actionIndex >= 0 && actionIndex < step.chefStep.actions.length) {
+    step.chefStep.actions[actionIndex] = { ...step.chefStep.actions[actionIndex], ...updates };
+    
+    // Save to backend
+    const success = await saveGleipFlow(gleipFlow);
+    
+    // Reload from backend (source of truth)
+    if (success) {
+      await loadGleipFlows();
+    }
+    
+    return success;
+  }
+  
+  return false;
+};
+
 // Helper Functions
 export function ensureValidRawRequest(step: GleipFlowStep): void {
   if (step.stepType === 'request' && step.requestStep) {
@@ -335,4 +452,19 @@ export function ensureValidRawRequest(step: GleipFlowStep): void {
       );
     }
   }
-} 
+}
+
+export const updateGleipFlow = async (gleipFlow: GleipFlow) => {
+  try {
+    // Call backend UpdateGleipFlow which automatically saves
+    await UpdateGleipFlow(backend.GleipFlow.createFrom(gleipFlow));
+    
+    // Refresh frontend state from backend (source of truth)
+    await loadGleipFlows();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to update GleipFlow:', error);
+    return false;
+  }
+}; 

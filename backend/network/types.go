@@ -1,9 +1,30 @@
 package network
 
 import (
+	"Gleip/backend/network/http_utils"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// RequestSender interface for sending HTTP requests (Single Responsibility)
+type RequestSender interface {
+	SendRequest(method, url, host, body string, headers map[string]string, gunzipResponse bool, tls bool) (*HTTPTransaction, error)
+	SendRawRequest(request HTTPRequest, gunzipResponse bool) (*HTTPTransaction, error)
+	SendRawRequestWithTimeout(request HTTPRequest, gunzipResponse bool, timeout time.Duration) (*HTTPTransaction, error)
+}
+
+// ResponseFormatter interface for formatting responses (Single Responsibility)
+type ResponseFormatter interface {
+	FormatRequest(req *http.Request, body string) string
+	FormatResponse(resp *http.Response, body []byte) string
+}
+
+// ResponseDecompressor interface for decompressing responses (Single Responsibility)
+type ResponseDecompressor interface {
+	Decompress(body []byte, contentEncoding string) ([]byte, error)
+}
 
 // HTTPRequest represents the request part of an HTTP transaction
 type HTTPRequest struct {
@@ -36,7 +57,6 @@ func (r *HTTPRequest) Body() []byte {
 
 func (r *HTTPRequest) Method() string {
 	method := strings.Split(r.Dump, " ")[0]
-	// fmt.Println("Method:", method)
 	return strings.ToUpper(method)
 }
 
@@ -54,9 +74,7 @@ type HTTPResponse struct {
 
 // Printable returns the printable version of the HTTP response
 func (r *HTTPResponse) Printable() string {
-	printable := GetPrintableResponse([]byte(r.Dump))
-	// fmt.Println("Printable:", printable)
-	return printable
+	return http_utils.GetPrintableResponse([]byte(r.Dump))
 }
 
 func (r *HTTPResponse) Status() string {

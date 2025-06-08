@@ -5,7 +5,7 @@
   import { getMethodColor } from '../../shared/utils/httpColors';
   import MonacoEditor from '../../components/monaco/MonacoEditor.svelte';
   import { interceptEnabled, updateInterceptState } from './store/interceptStore';
-  import { GetRequestMethod, GetRequestURL } from '../../../wailsjs/go/backend/HTTPHelper';
+  import { GetRequestMethod, GetRequestURL } from '../../../wailsjs/go/network/HTTPHelper';
 
   type HTTPTransaction = network.HTTPTransaction;
   

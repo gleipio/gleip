@@ -3,13 +3,7 @@ package backend
 import (
 	"Gleip/backend/network"
 	"net/http"
-	"time"
 )
-
-// HTTPClient interface for HTTP operations (Dependency Inversion)
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
 
 // InterceptQueue interface for managing intercepted requests (Single Responsibility)
 type InterceptQueue interface {
@@ -28,13 +22,6 @@ type VariableExtractor interface {
 // ScriptExecutor interface for executing scripts (Single Responsibility)
 type ScriptExecutor interface {
 	Execute(script string, context *ExecutionContext) (map[string]string, error)
-}
-
-// RequestSender interface for sending HTTP requests (Single Responsibility)
-type RequestSender interface {
-	SendRequest(method, url, host, body string, headers map[string]string, gunzipResponse bool, tls bool) (*network.HTTPTransaction, error)
-	SendRawRequest(request network.HTTPRequest, gunzipResponse bool) (*network.HTTPTransaction, error)
-	SendRawRequestWithTimeout(request network.HTTPRequest, gunzipResponse bool, timeout time.Duration) (*network.HTTPTransaction, error)
 }
 
 // ResponseDecompressor interface for decompressing responses (Single Responsibility)

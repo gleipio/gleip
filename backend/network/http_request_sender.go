@@ -1,7 +1,7 @@
-package backend
+package network
 
 import (
-	"Gleip/backend/network"
+	"Gleip/backend/network/http_utils"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -17,13 +17,13 @@ import (
 
 // DefaultRequestSender implements the RequestSender interface
 type DefaultRequestSender struct {
-	httpClient           HTTPClient
+	httpClient           http_utils.HTTPClient
 	responseDecompressor ResponseDecompressor
 	responseFormatter    ResponseFormatter
 }
 
 // NewRequestSender creates a new request sender with dependencies
-func NewRequestSender(client HTTPClient, decompressor ResponseDecompressor, formatter ResponseFormatter) RequestSender {
+func NewRequestSender(client http_utils.HTTPClient, decompressor ResponseDecompressor, formatter ResponseFormatter) RequestSender {
 	return &DefaultRequestSender{
 		httpClient:           client,
 		responseDecompressor: decompressor,
@@ -32,7 +32,7 @@ func NewRequestSender(client HTTPClient, decompressor ResponseDecompressor, form
 }
 
 // SendRequest sends an HTTP request and returns the response
-func (s *DefaultRequestSender) SendRequest(method, url, host, body string, headers map[string]string, gunzipResponse bool, tls bool) (*network.HTTPTransaction, error) {
+func (s *DefaultRequestSender) SendRequest(method, url, host, body string, headers map[string]string, gunzipResponse bool, tls bool) (*HTTPTransaction, error) {
 	// If host is provided, use it to construct the full URL
 	if host != "" {
 		url = s.constructURL(url, host, tls)
@@ -70,14 +70,14 @@ func (s *DefaultRequestSender) SendRequest(method, url, host, body string, heade
 
 	// Create transaction
 	formattedResponseDump := s.responseFormatter.FormatResponse(resp, respBody)
-	transaction := &network.HTTPTransaction{
+	transaction := &HTTPTransaction{
 		ID: uuid.New().String(),
-		Request: network.HTTPRequest{
+		Request: HTTPRequest{
 			Host: host,
 			Dump: s.responseFormatter.FormatRequest(req, body),
 			TLS:  tls,
 		},
-		Response: &network.HTTPResponse{
+		Response: &HTTPResponse{
 			Dump: formattedResponseDump,
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
@@ -88,147 +88,13 @@ func (s *DefaultRequestSender) SendRequest(method, url, host, body string, heade
 }
 
 // SendRawRequest sends an HTTP request using raw request text
-func (s *DefaultRequestSender) SendRawRequest(request network.HTTPRequest, gunzipResponse bool) (*network.HTTPTransaction, error) {
-	// Parse the raw request
-	actualMethod, finalURL, body, headers, _, err := s.parseRawHTTPRequest(request.Dump, request.Host, request.TLS)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract the actual host used (it might have been extracted from the Host header)
-	extractedHost := request.Host
-	if extractedHost == "" {
-		// Try to extract host from the finalURL
-		if finalURL != "" {
-			if parsedURL, err := neturl.Parse(finalURL); err == nil {
-				extractedHost = parsedURL.Host
-			}
-		}
-	}
-
-	// Create the request
-	req, err := http.NewRequest(actualMethod, finalURL, strings.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	// Send the request
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decompress response if needed
-	if gunzipResponse {
-		contentEncoding := resp.Header.Get("Content-Encoding")
-		if decompressedBody, err := s.responseDecompressor.Decompress(respBody, contentEncoding); err == nil {
-			respBody = decompressedBody
-		}
-	}
-
-	// Create transaction
-	formattedResponseDump := s.responseFormatter.FormatResponse(resp, respBody)
-	transaction := &network.HTTPTransaction{
-		ID: uuid.New().String(),
-		Request: network.HTTPRequest{
-			Host: extractedHost,
-			Dump: request.Dump,
-			TLS:  request.TLS,
-		},
-		Response: &network.HTTPResponse{
-			Dump: formattedResponseDump,
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
-		SeqNumber: 0,
-	}
-
-	return transaction, nil
+func (s *DefaultRequestSender) SendRawRequest(request HTTPRequest, gunzipResponse bool) (*HTTPTransaction, error) {
+	return s.sendRawRequestInternal(request, gunzipResponse, nil)
 }
 
 // SendRawRequestWithTimeout sends an HTTP request with a timeout
-func (s *DefaultRequestSender) SendRawRequestWithTimeout(request network.HTTPRequest, gunzipResponse bool, timeout time.Duration) (*network.HTTPTransaction, error) {
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	// Parse the raw request
-	actualMethod, finalURL, body, headers, _, err := s.parseRawHTTPRequest(request.Dump, request.Host, request.TLS)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract the actual host used (it might have been extracted from the Host header)
-	extractedHost := request.Host
-	if extractedHost == "" {
-		// Try to extract host from the finalURL
-		if finalURL != "" {
-			if parsedURL, err := neturl.Parse(finalURL); err == nil {
-				extractedHost = parsedURL.Host
-			}
-		}
-	}
-
-	// Create the request with context
-	req, err := http.NewRequestWithContext(ctx, actualMethod, finalURL, strings.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	// Send the request
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decompress response if needed
-	if gunzipResponse {
-		contentEncoding := resp.Header.Get("Content-Encoding")
-		if decompressedBody, err := s.responseDecompressor.Decompress(respBody, contentEncoding); err == nil {
-			respBody = decompressedBody
-		}
-	}
-
-	// Create transaction
-	formattedResponseDump := s.responseFormatter.FormatResponse(resp, respBody)
-	transaction := &network.HTTPTransaction{
-		ID: uuid.New().String(),
-		Request: network.HTTPRequest{
-			Host: extractedHost,
-			Dump: request.Dump,
-			TLS:  request.TLS,
-		},
-		Response: &network.HTTPResponse{
-			Dump: formattedResponseDump,
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
-		SeqNumber: 0,
-	}
-
-	return transaction, nil
+func (s *DefaultRequestSender) SendRawRequestWithTimeout(request HTTPRequest, gunzipResponse bool, timeout time.Duration) (*HTTPTransaction, error) {
+	return s.sendRawRequestInternal(request, gunzipResponse, &timeout)
 }
 
 // constructURL constructs a full URL from parts
@@ -361,4 +227,82 @@ func CreateHTTPTransport() *http.Transport {
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
 	}
+}
+
+// sendRawRequestInternal is the generalized internal method for sending raw requests
+func (s *DefaultRequestSender) sendRawRequestInternal(request HTTPRequest, gunzipResponse bool, timeout *time.Duration) (*HTTPTransaction, error) {
+	// Parse the raw request
+	actualMethod, finalURL, body, headers, _, err := s.parseRawHTTPRequest(request.Dump, request.Host, request.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the actual host used (it might have been extracted from the Host header)
+	extractedHost := request.Host
+	if extractedHost == "" {
+		// Try to extract host from the finalURL
+		if finalURL != "" {
+			if parsedURL, err := neturl.Parse(finalURL); err == nil {
+				extractedHost = parsedURL.Host
+			}
+		}
+	}
+
+	// Create the request with or without context based on timeout
+	var req *http.Request
+	if timeout != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		req, err = http.NewRequestWithContext(ctx, actualMethod, finalURL, strings.NewReader(body))
+	} else {
+		req, err = http.NewRequest(actualMethod, finalURL, strings.NewReader(body))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Set headers
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	// Send the request
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decompress response if needed
+	if gunzipResponse {
+		contentEncoding := resp.Header.Get("Content-Encoding")
+		if decompressedBody, err := s.responseDecompressor.Decompress(respBody, contentEncoding); err == nil {
+			respBody = decompressedBody
+		}
+	}
+
+	// Create transaction
+	formattedResponseDump := s.responseFormatter.FormatResponse(resp, respBody)
+	transaction := &HTTPTransaction{
+		ID: uuid.New().String(),
+		Request: HTTPRequest{
+			Host: extractedHost,
+			Dump: request.Dump,
+			TLS:  request.TLS,
+		},
+		Response: &HTTPResponse{
+			Dump: formattedResponseDump,
+		},
+		Timestamp: time.Now().Format(time.RFC3339),
+		SeqNumber: 0,
+	}
+
+	return transaction, nil
 }

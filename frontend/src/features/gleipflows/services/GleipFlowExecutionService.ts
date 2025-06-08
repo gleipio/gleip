@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import { ExecuteGleipFlow } from '../../../../wailsjs/go/backend/App';
 import { EventsOn } from '../../../../wailsjs/runtime/runtime';
 import type { ExecutionResult, StepExecutionEvent } from '../types';
-import { gleipFlows, activeGleipFlowIndex, executionResults, isExecuting, saveGleipFlow } from '../store/gleipStore';
+import { gleipFlows, activeGleipFlowIndex, isExecuting, saveGleipFlow } from '../store/gleipStore';
 
 /**
  * Service for handling gleip execution
@@ -54,7 +54,8 @@ export class GleipFlowExecutionService {
                   console.log(`Automatically updating request editor for step ${result.stepId} with actual request`);
                   requestStep.request.dump = result.actualRawRequest;
                   gleipFlows.set([...currentGleipFlows]); // Trigger reactivity
-                  saveGleipFlow(currentGleipFlows[currentActiveIndex]);
+                  // DON'T save during execution - this overwrites execution results!
+                  // saveGleipFlow(currentGleipFlows[currentActiveIndex]);
                 }
               }
             }
@@ -115,9 +116,14 @@ export class GleipFlowExecutionService {
                      gleip.id + '-variables')
         .filter(id => id !== undefined);
         
-      // Filter out results for steps being executed, keep others
-      const currentResults = get(executionResults);
-      executionResults.set(currentResults.filter(result => !selectedStepIds.includes(result.stepId)));
+      // Filter out results for steps being executed, keep others in the flow
+      const currentResults = gleip.executionResults || [];
+      const filteredResults = currentResults.filter((result: ExecutionResult) => !selectedStepIds.includes(result.stepId));
+      
+      // Update the flow with filtered results
+      const updatedFlow = { ...gleip, executionResults: filteredResults };
+      currentGleipFlows[currentActiveIndex] = updatedFlow;
+      gleipFlows.set([...currentGleipFlows]);
       
       console.log("Executing gleip with steps:", gleip.steps);
       
@@ -179,14 +185,17 @@ export class GleipFlowExecutionService {
       
       // Only clear the results for the step being executed
       if (stepId) {
-        const currentResults = get(executionResults);
-        executionResults.set(currentResults.filter(result => result.stepId !== stepId));
+        const currentResults = gleip.executionResults || [];
+        const filteredResults = currentResults.filter((result: ExecutionResult) => result.stepId !== stepId);
+        const updatedFlow = { ...gleip, executionResults: filteredResults };
+        currentGleipFlows[currentActiveIndex] = updatedFlow;
+        gleipFlows.set([...currentGleipFlows]);
       }
       
       console.log(`Preparing to execute step ${stepIndex} (${step.stepType})`);
       
       // Mark only this step as selected
-      const updatedSteps = gleip.steps.map((s, idx) => ({
+      const updatedSteps = gleip.steps.map((s: any, idx: number) => ({
         ...s,
         selected: idx === stepIndex
       }));
@@ -197,9 +206,9 @@ export class GleipFlowExecutionService {
         steps: updatedSteps
       };
       
-      // Save the gleip with selected steps
-      gleipFlows.set([...currentGleipFlows.slice(0, currentActiveIndex), updatedGleipFlow, ...currentGleipFlows.slice(currentActiveIndex + 1)]);
-      await saveGleipFlow(updatedGleipFlow);
+      // Update the store
+      currentGleipFlows[currentActiveIndex] = updatedGleipFlow;
+      gleipFlows.set([...currentGleipFlows]);
       
       // Execute the gleip
       await this.executeGleipFlow(gleip.id);
@@ -207,14 +216,14 @@ export class GleipFlowExecutionService {
       // Reset selections after execution
       const resetGleipFlow = {
         ...gleip,
-        steps: gleip.steps.map(s => ({
+        steps: gleip.steps.map((s: any) => ({
           ...s,
           selected: true
         }))
       };
       
-      gleipFlows.set([...currentGleipFlows.slice(0, currentActiveIndex), resetGleipFlow, ...currentGleipFlows.slice(currentActiveIndex + 1)]);
-      await saveGleipFlow(resetGleipFlow);
+      currentGleipFlows[currentActiveIndex] = resetGleipFlow;
+      gleipFlows.set([...currentGleipFlows]);
       
       // Make sure isExecuting is properly reset
       isExecuting.set(false);
@@ -227,18 +236,20 @@ export class GleipFlowExecutionService {
       // Reset selections on error
       const currentGleipFlows = get(gleipFlows);
       const currentActiveIndex = get(activeGleipFlowIndex);
-      const gleip = currentGleipFlows[currentActiveIndex];
-      
-      const resetGleipFlow = {
-        ...gleip,
-        steps: gleip.steps.map(s => ({
-          ...s,
-          selected: true
-        }))
-      };
-      
-      gleipFlows.set([...currentGleipFlows.slice(0, currentActiveIndex), resetGleipFlow, ...currentGleipFlows.slice(currentActiveIndex + 1)]);
-      await saveGleipFlow(resetGleipFlow);
+      if (currentActiveIndex !== null && currentActiveIndex < currentGleipFlows.length) {
+        const gleip = currentGleipFlows[currentActiveIndex];
+        
+        const resetGleipFlow = {
+          ...gleip,
+          steps: gleip.steps.map((s: any) => ({
+            ...s,
+            selected: true
+          }))
+        };
+        
+        currentGleipFlows[currentActiveIndex] = resetGleipFlow;
+        gleipFlows.set([...currentGleipFlows]);
+      }
       
       return false;
     }
@@ -248,14 +259,20 @@ export class GleipFlowExecutionService {
    * Update execution results from a step execution event
    */
   private static updateExecutionResults(data: StepExecutionEvent): void {
-    // Update the execution results, preserving results for steps not executed
+    // Update the execution results in the active flow
+    const currentGleipFlows = get(gleipFlows);
+    const currentActiveIndex = get(activeGleipFlowIndex);
+    
+    if (currentActiveIndex === null || currentActiveIndex >= currentGleipFlows.length) return;
+    
+    const activeFlow = currentGleipFlows[currentActiveIndex];
     const newResults = [...data.results];
     
     // Get IDs of steps that were actually executed
     const executedStepIds = newResults.map(r => r.stepId);
     
     // Keep previous results for steps that weren't executed
-    const currentResults = get(executionResults);
+    const currentResults = activeFlow.executionResults || [];
     for (const oldResult of currentResults) {
       // If this result is not in the new results (step wasn't executed), preserve it
       if (!executedStepIds.includes(oldResult.stepId)) {
@@ -263,21 +280,13 @@ export class GleipFlowExecutionService {
       }
     }
     
-    // Update execution results
-    executionResults.set(newResults);
-    
-    // Force a UI update by triggering reactivity
-    const currentGleipFlows = get(gleipFlows);
-    const currentActiveIndex = get(activeGleipFlowIndex);
-    
-    if (currentActiveIndex !== null && currentActiveIndex < currentGleipFlows.length) {
-      // Create a shallow copy to trigger reactivity
-      gleipFlows.set([...currentGleipFlows]);
-    }
+    // Update the flow with new execution results
+    const updatedFlow = { ...activeFlow, executionResults: newResults };
+    currentGleipFlows[currentActiveIndex] = updatedFlow;
+    gleipFlows.set([...currentGleipFlows]);
     
     // If all steps are complete, update isExecuting flag
-    if (currentActiveIndex !== null && currentActiveIndex < currentGleipFlows.length &&
-        data.currentStepIndex === currentGleipFlows[currentActiveIndex].steps.length - 1) {
+    if (data.currentStepIndex === activeFlow.steps.length - 1) {
       isExecuting.set(false);
     }
   }
@@ -286,7 +295,13 @@ export class GleipFlowExecutionService {
    * Merge new execution results with existing ones
    */
   private static mergeExecutionResults(results: ExecutionResult[]): void {
-    const currentResults = get(executionResults);
+    const currentGleipFlows = get(gleipFlows);
+    const currentActiveIndex = get(activeGleipFlowIndex);
+    
+    if (currentActiveIndex === null || currentActiveIndex >= currentGleipFlows.length) return;
+    
+    const activeFlow = currentGleipFlows[currentActiveIndex];
+    const currentResults = activeFlow.executionResults || [];
     
     // Create new array with new results taking precedence
     const merged = [
@@ -294,6 +309,9 @@ export class GleipFlowExecutionService {
       ...currentResults.filter(r => !results.some(nr => nr.stepId === r.stepId))
     ];
     
-    executionResults.set(merged);
+    // Update the flow
+    const updatedFlow = { ...activeFlow, executionResults: merged };
+    currentGleipFlows[currentActiveIndex] = updatedFlow;
+    gleipFlows.set([...currentGleipFlows]);
   }
 } 

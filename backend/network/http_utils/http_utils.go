@@ -1,4 +1,4 @@
-package network
+package http_utils
 
 import (
 	"bufio"
@@ -6,11 +6,17 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/andybalholm/brotli"
 )
+
+// HTTPClient interface for HTTP operations (Dependency Inversion)
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
 
 // isProxyHost checks if the host is the proxy itself
 func IsProxyHost(host string) bool {

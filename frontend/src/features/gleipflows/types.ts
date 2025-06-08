@@ -34,6 +34,21 @@ export type ScriptStep = {
   content: string;
 };
 
+export type ChefAction = {
+  id: string;
+  actionType: string;
+  options: Record<string, any>;
+  preview: string;
+};
+
+export type ChefStep = {
+  id: string;
+  name: string;
+  inputVariable: string;
+  actions: ChefAction[];
+  outputVariable: string;
+};
+
 export type VariableExtract = {
   name: string;
   source: string;
@@ -44,6 +59,7 @@ export type GleipFlowStep = {
   stepType: string;
   requestStep?: RequestStep;
   scriptStep?: ScriptStep;
+  chefStep?: ChefStep;
   variablesStep?: Record<string, string>;
   selected?: boolean; // Flag to indicate if this step should be executed
 };
@@ -54,6 +70,7 @@ export type GleipFlow = {
   variables: Record<string, string>;
   steps: GleipFlowStep[];
   sortingIndex: number; // Index for tab ordering (1 to n)
+  executionResults?: ExecutionResult[]; // Execution results from the backend
 };
 
 export type ExecutionResult = backend.ExecutionResult & {

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"Gleip/backend/chef"
 	"Gleip/backend/network"
 	"fmt"
 )
@@ -78,19 +79,21 @@ func (r RequestStep) GetName() string {
 
 // GleipFlowStep represents a step in a request gleip
 type GleipFlowStep struct {
-	StepType    string       `json:"stepType"` // "request" or "script"
-	RequestStep *RequestStep `json:"requestStep,omitempty"`
-	ScriptStep  *ScriptStep  `json:"scriptStep,omitempty"`
-	Selected    bool         `json:"selected,omitempty"` // Flag for execution selection
+	StepType    string         `json:"stepType"` // "request", "script", or "chef"
+	RequestStep *RequestStep   `json:"requestStep,omitempty"`
+	ScriptStep  *ScriptStep    `json:"scriptStep,omitempty"`
+	ChefStep    *chef.ChefStep `json:"chefStep,omitempty"`
+	Selected    bool           `json:"selected,omitempty"` // Flag for execution selection
 }
 
 // GleipFlow represents a sequence of HTTP requests and scripts
 type GleipFlow struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Steps        []GleipFlowStep   `json:"steps"`
-	Variables    map[string]string `json:"variables"`
-	SortingIndex int               `json:"sortingIndex"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Steps            []GleipFlowStep   `json:"steps"`
+	Variables        map[string]string `json:"variables"`
+	SortingIndex     int               `json:"sortingIndex"`
+	ExecutionResults []ExecutionResult `json:"executionResults,omitempty"`
 }
 
 // ExecutionContext represents the context for gleip execution
@@ -124,15 +127,6 @@ type ExecutionResult struct {
 	ActualRawRequest string                   `json:"actualRawRequest,omitempty"`
 }
 
-// ScanTarget represents a target for automatic exploitation
-type ScanTarget struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	BaseURL     string   `json:"baseURL"`
-	Scope       []string `json:"scope"`       // List of paths/domains in scope
-	ExcludeURLs []string `json:"excludeURLs"` // URLs to exclude from scanning
-}
-
 // VulnerabilityType represents the type of vulnerability
 type VulnerabilityType string
 
@@ -147,18 +141,6 @@ const (
 	SSRF                    VulnerabilityType = "ssrf"
 	OpenRedirect            VulnerabilityType = "open_redirect"
 )
-
-// ScanConfig represents the configuration for an automatic scan
-type ScanConfig struct {
-	ID                 string              `json:"id"`
-	Name               string              `json:"name"`
-	TargetID           string              `json:"targetId"`
-	VulnerabilityTypes []VulnerabilityType `json:"vulnerabilityTypes"`
-	MaxDepth           int                 `json:"maxDepth"`
-	MaxRequests        int                 `json:"maxRequests"`
-	RequestDelay       int                 `json:"requestDelay"` // Delay between requests in milliseconds
-	Authentication     *AuthConfig         `json:"authentication,omitempty"`
-}
 
 // AuthConfig represents authentication configuration for automatic scanning
 type AuthConfig struct {
@@ -195,19 +177,6 @@ type Vulnerability struct {
 	Payload     string                `json:"payload,omitempty"`
 	Parameter   string                `json:"parameter,omitempty"`
 	Details     map[string]string     `json:"details,omitempty"`
-}
-
-// ScanResult represents the result of an automatic scan
-type ScanResult struct {
-	ID              string          `json:"id"`
-	ScanConfigID    string          `json:"scanConfigId"`
-	StartTime       string          `json:"startTime"`
-	EndTime         string          `json:"endTime,omitempty"`
-	Status          string          `json:"status"` // "running", "completed", "failed"
-	RequestCount    int             `json:"requestCount"`
-	ErrorCount      int             `json:"errorCount"`
-	Vulnerabilities []Vulnerability `json:"vulnerabilities"`
-	Error           string          `json:"error,omitempty"`
 }
 
 // NewExecutionContext creates a new execution context

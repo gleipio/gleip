@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import type { GleipFlowStep, ExecutionResult } from '../types';
   import RequestStep from './RequestStep.svelte';
   import ScriptStep from './ScriptStep.svelte';
+  import ChefStep from './ChefStep.svelte';
   import VariablesStep from './VariablesStep.svelte';
   import { network } from '../../../../wailsjs/go/models';
-  import { GetRequestMethod, GetResponseStatusCode } from '../../../../wailsjs/go/backend/HTTPHelper';
+  import { GetRequestMethod, GetResponseStatusCode } from '../../../../wailsjs/go/network/HTTPHelper';
+  import { GetAvailableVariablesForStep, GetAvailableVariableValuesForStep } from '../../../../wailsjs/go/backend/App';
   import '../../../types/extensions';
   
   export let step: GleipFlowStep;
@@ -13,6 +15,11 @@
   export let isExpanded: boolean = false;
   export let executionResult: ExecutionResult | undefined = undefined;
   export let isExecuting: boolean = false;
+  export let gleipFlowID: string = '';
+  
+  // Available variables for chef steps
+  let availableVariables: string[] = [];
+  let variableValues: Record<string, string> = {};
   
   const dispatch = createEventDispatcher();
   
@@ -22,6 +29,11 @@
   // Load request method when step changes
   $: if (step.stepType === 'request' && step.requestStep) {
     loadRequestMethod();
+  }
+  
+  // Load available variables when step changes and it's a chef step
+  $: if (step.stepType === 'chef' && gleipFlowID && stepIndex >= 0) {
+    loadAvailableVariables();
   }
   
   async function loadRequestMethod() {
@@ -35,11 +47,39 @@
     }
   }
   
+  async function loadAvailableVariables() {
+    if (step.stepType === 'chef' && gleipFlowID) {
+      try {
+        // Adjust stepIndex to account for the fake variables step at index 0
+        const actualStepIndex = stepIndex > 0 ? stepIndex - 1 : 0;
+        
+        // Get variable names
+        const variables = await GetAvailableVariablesForStep(gleipFlowID, actualStepIndex);
+        availableVariables = Array.isArray(variables) ? variables : [];
+        
+        // Get variable values
+        const values = await GetAvailableVariableValuesForStep(gleipFlowID, actualStepIndex);
+        variableValues = values || {};
+        
+        console.log('Loaded variables:', availableVariables);
+        console.log('Loaded variable values:', variableValues);
+      } catch (error) {
+        console.error('Failed to get available variables:', error);
+        availableVariables = [];
+        variableValues = {};
+      }
+    } else {
+      availableVariables = [];
+      variableValues = {};
+    }
+  }
+  
   // Get step type label
   function getStepTypeLabel(stepType: string): string {
     switch (stepType) {
       case 'request': return 'HTTP';
       case 'script': return 'JS';
+      case 'chef': return 'CHEF';
       case 'variables': return 'VAR';
       default: return 'STEP';
     }
@@ -50,6 +90,7 @@
     switch (stepType) {
       case 'request': return 'bg-blue-500/30 text-blue-300';
       case 'script': return 'bg-amber-500/30 text-amber-300';
+      case 'chef': return 'bg-purple-500/30 text-purple-300';
       case 'variables': return 'bg-green-500/30 text-green-300';
       default: return 'bg-gray-500/30 text-gray-100';
     }
@@ -111,6 +152,18 @@
     dispatch('updateStep', { 
       stepIndex, 
       stepType: 'script',
+      updates 
+    });
+  }
+  
+  // Handle chef step updates
+  function handleChefUpdate(event: CustomEvent) {
+    if (!step.chefStep) return;
+    
+    const updates = event.detail;
+    dispatch('updateStep', { 
+      stepIndex, 
+      stepType: 'chef',
       updates 
     });
   }
@@ -178,6 +231,7 @@
             {
               step.stepType === 'request' && step.requestStep ? step.requestStep.name : 
               step.stepType === 'script' && step.scriptStep ? step.scriptStep.name :
+              step.stepType === 'chef' && step.chefStep ? step.chefStep.name :
               step.stepType === 'variables' ? 'Variables' :
               'Unnamed Step'
             }
@@ -252,6 +306,7 @@
               {
                 step.stepType === 'request' && step.requestStep ? step.requestStep.name : 
                 step.stepType === 'script' && step.scriptStep ? step.scriptStep.name :
+                step.stepType === 'chef' && step.chefStep ? step.chefStep.name :
                 step.stepType === 'variables' ? 'Variables' :
                 'Unnamed Step'
               }
@@ -358,6 +413,34 @@
               <div class="text-xs text-gray-500">Not executed</div>
             {/if}
           </div>
+        {:else if step.stepType === 'chef' && step.chefStep}
+          <!-- Chef summary -->
+          <div class="flex flex-col space-y-2 mt-4">
+            <div class="text-sm font-medium text-gray-100">Chef</div>
+            <div class="text-xs text-gray-50">
+              Input: <span class="text-blue-300">{step.chefStep.inputVariable || 'Not set'}</span>
+            </div>
+            <div class="text-xs text-gray-50">
+              Actions: {step.chefStep.actions.length}
+            </div>
+            <div class="text-xs text-gray-50">
+              Output: <span class="text-green-300">{step.chefStep.outputVariable || 'Not set'}</span>
+            </div>
+            
+            <!-- Chef result -->
+            {#if executionResult}
+              <div class="flex items-center space-x-2">
+                <span class={`px-2 py-0.5 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
+                  {executionResult.success ? 'Success' : 'Failed'}
+                </span>
+                {#if executionResult.executionTime !== undefined}
+                  <span class="text-xs text-gray-50">{executionResult.executionTime}ms</span>
+                {/if}
+              </div>
+            {:else}
+              <div class="text-xs text-gray-500">Not executed</div>
+            {/if}
+          </div>
         {:else if step.stepType === 'variables' && step.variablesStep}
           <!-- Variables summary for collapsed view -->
           <div class="flex flex-col space-y-2">
@@ -400,6 +483,16 @@
           on:update={handleScriptUpdate}
           on:execute={executeStep}
           on:editorMount={handleEditorMount}
+        />
+      {:else if step.stepType === 'chef'}
+        <ChefStep 
+          executionResult={executionResult}
+          isExecuting={isExecuting}
+          stepIndex={stepIndex > 0 ? stepIndex - 1 : 0}
+          availableVariables={availableVariables}
+          variableValues={variableValues}
+          on:update={handleChefUpdate}
+          on:execute={executeStep}
         />
       {:else if step.stepType === 'variables' && step.variablesStep}
         <VariablesStep 

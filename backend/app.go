@@ -1,12 +1,11 @@
 package backend
 
 import (
+	"Gleip/backend/chef"
 	"Gleip/backend/network"
 	"Gleip/backend/paths"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,21 +37,17 @@ type Project struct {
 	ActiveRequestID string                     `json:"activeRequestId,omitempty"`
 
 	// Request GleipFlow Tab data
-	GleipFlows          []*GleipFlow                 `json:"gleipFlows,omitempty"`
-	Variables           map[string]string            `json:"variables,omitempty"`
-	SelectedGleipFlowID string                       `json:"selectedGleipFlowId,omitempty"`
-	ExecutionStates     map[string][]ExecutionResult `json:"executionStates,omitempty"`
+	GleipFlows          []*GleipFlow      `json:"gleipFlows,omitempty"`
+	Variables           map[string]string `json:"variables,omitempty"`
+	SelectedGleipFlowID string            `json:"selectedGleipFlowId,omitempty"`
 
 	// API Collections data
 	APICollections        []APICollection `json:"apiCollections,omitempty"`
 	SelectedAPICollection string          `json:"selectedApiCollectionId,omitempty"`
 
 	// Other application state
-	ProxyEnabled bool          `json:"proxyEnabled"`
-	ProxyPort    int           `json:"proxyPort"`
-	ScanTargets  []*ScanTarget `json:"scanTargets,omitempty"`
-	ScanConfigs  []*ScanConfig `json:"scanConfigs,omitempty"`
-	ScanResults  []*ScanResult `json:"scanResults,omitempty"`
+	ProxyEnabled bool `json:"proxyEnabled"`
+	ProxyPort    int  `json:"proxyPort"`
 }
 
 // App struct
@@ -64,17 +59,13 @@ type App struct {
 	currentProject      *Project
 	projectMutex        sync.RWMutex
 	apiCollectionsMutex sync.RWMutex
-	scanTargetsMutex    sync.RWMutex
-	scanConfigsMutex    sync.RWMutex
-	scanResultsMutex    sync.RWMutex
-	scanTargetsCache    map[string]*ScanTarget
-	scanConfigsCache    map[string]*ScanConfig
-	scanResultsCache    map[string]*ScanResult
-	activeScans         map[string]*ScanResult
-	activeScansMutex    sync.RWMutex
-	firefoxPID          int
-	gleipFlowExecutor   *GleipFlowExecutor
-	tempProjectPath     string // Path to temporary project file
+	// scanTargetsCache    map[string]*ScanTarget
+	// scanConfigsCache    map[string]*ScanConfig
+	// scanResultsCache    map[string]*ScanResult
+	// activeScans         map[string]*ScanResult
+	firefoxPID        int
+	gleipFlowExecutor *GleipFlowExecutor
+	tempProjectPath   string // Path to temporary project file
 
 	// Auto-save related fields
 	autoSaveTimer      *time.Timer
@@ -88,9 +79,6 @@ type App struct {
 	dirtyRequestHistory bool
 	dirtyGleipFlows     bool
 	dirtyAPICollections bool
-	dirtyScanTargets    bool
-	dirtyScanConfigs    bool
-	dirtyScanResults    bool
 	dirtyProjectMeta    bool // For project name, settings, etc.
 
 	// Cache for selected GleipFlow ID to avoid race conditions
@@ -106,10 +94,6 @@ func NewApp() *App {
 	InitSettings()
 	app := &App{
 		gleipFlowsCache:  make(map[string]*GleipFlow),
-		scanTargetsCache: make(map[string]*ScanTarget),
-		scanConfigsCache: make(map[string]*ScanConfig),
-		scanResultsCache: make(map[string]*ScanResult),
-		activeScans:      make(map[string]*ScanResult),
 		autoSaveInterval: 5 * time.Second, // Auto-save every 5 seconds at most
 	}
 	app.gleipFlowExecutor = NewGleipFlowExecutor(app)
@@ -150,26 +134,6 @@ func (a *App) clearApplicationState() {
 	a.gleipFlowsMutex.Lock()
 	a.gleipFlowsCache = make(map[string]*GleipFlow)
 	a.gleipFlowsMutex.Unlock()
-
-	// Clear scan targets
-	a.scanTargetsMutex.Lock()
-	a.scanTargetsCache = make(map[string]*ScanTarget)
-	a.scanTargetsMutex.Unlock()
-
-	// Clear scan configs
-	a.scanConfigsMutex.Lock()
-	a.scanConfigsCache = make(map[string]*ScanConfig)
-	a.scanConfigsMutex.Unlock()
-
-	// Clear scan results
-	a.scanResultsMutex.Lock()
-	a.scanResultsCache = make(map[string]*ScanResult)
-	a.scanResultsMutex.Unlock()
-
-	// Clear active scans
-	a.activeScansMutex.Lock()
-	a.activeScans = make(map[string]*ScanResult)
-	a.activeScansMutex.Unlock()
 
 	// Reset other application state as needed
 }
@@ -269,6 +233,7 @@ func (a *App) restoreApplicationState() error {
 	a.gleipFlowsCache = make(map[string]*GleipFlow)
 	for _, gleipFlow := range a.currentProject.GleipFlows {
 		a.gleipFlowsCache[gleipFlow.ID] = gleipFlow
+		fmt.Printf("DEBUG: Restored flow %s with %d execution results\n", gleipFlow.ID, len(gleipFlow.ExecutionResults))
 	}
 	a.gleipFlowsMutex.Unlock()
 
@@ -276,30 +241,6 @@ func (a *App) restoreApplicationState() error {
 	a.selectedGleipMutex.Lock()
 	a.selectedGleipFlowID = a.currentProject.SelectedGleipFlowID
 	a.selectedGleipMutex.Unlock()
-
-	// Restore scan targets
-	a.scanTargetsMutex.Lock()
-	a.scanTargetsCache = make(map[string]*ScanTarget)
-	for _, target := range a.currentProject.ScanTargets {
-		a.scanTargetsCache[target.ID] = target
-	}
-	a.scanTargetsMutex.Unlock()
-
-	// Restore scan configs
-	a.scanConfigsMutex.Lock()
-	a.scanConfigsCache = make(map[string]*ScanConfig)
-	for _, config := range a.currentProject.ScanConfigs {
-		a.scanConfigsCache[config.ID] = config
-	}
-	a.scanConfigsMutex.Unlock()
-
-	// Restore scan results
-	a.scanResultsMutex.Lock()
-	a.scanResultsCache = make(map[string]*ScanResult)
-	for _, result := range a.currentProject.ScanResults {
-		a.scanResultsCache[result.ID] = result
-	}
-	a.scanResultsMutex.Unlock()
 
 	return nil
 }
@@ -445,444 +386,30 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 
 	results, err := a.gleipFlowExecutor.ExecuteGleipFlow(gleipFlow)
 	if err == nil {
-		// Request auto-save since we've modified data
+		// DIRECTLY update the cached GleipFlow with execution results
+		a.gleipFlowsMutex.Lock()
+		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
+			cachedFlow.ExecutionResults = results
+		}
+		a.gleipFlowsMutex.Unlock()
+
+		// DIRECTLY update the project GleipFlow with execution results
+		a.projectMutex.Lock()
+		if a.currentProject != nil {
+			for _, projectFlow := range a.currentProject.GleipFlows {
+				if projectFlow.ID == gleipFlowID {
+					projectFlow.ExecutionResults = results
+					break
+				}
+			}
+		}
+		a.projectMutex.Unlock()
+
+		// Request auto-save since we've modified gleipFlow data (including execution results)
 		a.requestAutoSaveWithComponent("gleip_flows")
 	}
 
 	return results, err
-}
-
-// SaveScanTarget saves a scan target
-func (a *App) SaveScanTarget(target ScanTarget) error {
-	// Generate ID if not present
-	if target.ID == "" {
-		target.ID = uuid.New().String()
-	}
-
-	a.scanTargetsMutex.Lock()
-	defer a.scanTargetsMutex.Unlock()
-
-	// Update the cache
-	a.scanTargetsCache[target.ID] = &target
-
-	// Request auto-save
-	a.requestAutoSaveWithComponent("scan_targets")
-
-	// Save to disk
-	targetPath := filepath.Join(paths.GlobalPaths.ScanTargetsDir, target.ID+".json")
-	data, err := json.MarshalIndent(target, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal scan target: %v", err)
-	}
-
-	if err := os.WriteFile(targetPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to save scan target: %v", err)
-	}
-
-	return nil
-}
-
-// GetScanTargets returns all scan targets
-func (a *App) GetScanTargets() []ScanTarget {
-	a.scanTargetsMutex.RLock()
-	defer a.scanTargetsMutex.RUnlock()
-
-	targets := make([]ScanTarget, 0, len(a.scanTargetsCache))
-	for _, target := range a.scanTargetsCache {
-		targets = append(targets, *target)
-	}
-
-	return targets
-}
-
-// GetScanTarget returns a specific scan target
-func (a *App) GetScanTarget(id string) (*ScanTarget, error) {
-	a.scanTargetsMutex.RLock()
-	defer a.scanTargetsMutex.RUnlock()
-
-	target, exists := a.scanTargetsCache[id]
-	if !exists {
-		return nil, fmt.Errorf("scan target not found: %s", id)
-	}
-
-	return target, nil
-}
-
-// DeleteScanTarget deletes a scan target
-func (a *App) DeleteScanTarget(id string) error {
-	a.scanTargetsMutex.Lock()
-	defer a.scanTargetsMutex.Unlock()
-
-	// Check if target exists
-	_, exists := a.scanTargetsCache[id]
-	if !exists {
-		return fmt.Errorf("scan target not found: %s", id)
-	}
-
-	// Delete from cache
-	delete(a.scanTargetsCache, id)
-
-	// Request auto-save
-	a.requestAutoSaveWithComponent("scan_targets")
-
-	// Delete from disk
-	targetPath := filepath.Join(paths.GlobalPaths.ScanTargetsDir, id+".json")
-	if err := os.Remove(targetPath); err != nil {
-		return fmt.Errorf("failed to delete scan target file: %v", err)
-	}
-
-	return nil
-}
-
-// SaveScanConfig saves a scan configuration
-func (a *App) SaveScanConfig(config ScanConfig) error {
-	// Generate ID if not present
-	if config.ID == "" {
-		config.ID = uuid.New().String()
-	}
-
-	a.scanConfigsMutex.Lock()
-	defer a.scanConfigsMutex.Unlock()
-
-	// Update the cache
-	a.scanConfigsCache[config.ID] = &config
-
-	// Request auto-save
-	a.requestAutoSaveWithComponent("scan_configs")
-
-	// Save to disk
-	configPath := filepath.Join(paths.GlobalPaths.ScanConfigsDir, config.ID+".json")
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal scan config: %v", err)
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to save scan config: %v", err)
-	}
-
-	return nil
-}
-
-// GetScanConfigs returns all scan configurations
-func (a *App) GetScanConfigs() []ScanConfig {
-	a.scanConfigsMutex.RLock()
-	defer a.scanConfigsMutex.RUnlock()
-
-	configs := make([]ScanConfig, 0, len(a.scanConfigsCache))
-	for _, config := range a.scanConfigsCache {
-		configs = append(configs, *config)
-	}
-
-	return configs
-}
-
-// GetScanConfig returns a specific scan configuration
-func (a *App) GetScanConfig(id string) (*ScanConfig, error) {
-	a.scanConfigsMutex.RLock()
-	defer a.scanConfigsMutex.RUnlock()
-
-	config, exists := a.scanConfigsCache[id]
-	if !exists {
-		return nil, fmt.Errorf("scan config not found: %s", id)
-	}
-
-	return config, nil
-}
-
-// DeleteScanConfig deletes a scan configuration
-func (a *App) DeleteScanConfig(id string) error {
-	a.scanConfigsMutex.Lock()
-	defer a.scanConfigsMutex.Unlock()
-
-	// Check if config exists
-	_, exists := a.scanConfigsCache[id]
-	if !exists {
-		return fmt.Errorf("scan config not found: %s", id)
-	}
-
-	// Delete from cache
-	delete(a.scanConfigsCache, id)
-
-	// Request auto-save
-	a.requestAutoSaveWithComponent("scan_configs")
-
-	// Delete from disk
-	configPath := filepath.Join(paths.GlobalPaths.ScanConfigsDir, id+".json")
-	if err := os.Remove(configPath); err != nil {
-		return fmt.Errorf("failed to delete scan config file: %v", err)
-	}
-
-	return nil
-}
-
-// SaveScanResult saves a scan result
-func (a *App) SaveScanResult(result ScanResult) error {
-	a.scanResultsMutex.Lock()
-	defer a.scanResultsMutex.Unlock()
-
-	// Update the cache
-	a.scanResultsCache[result.ID] = &result
-
-	// Request auto-save
-	a.requestAutoSaveWithComponent("scan_results")
-
-	// Save to disk
-	resultPath := filepath.Join(paths.GlobalPaths.ScanResultsDir, result.ID+".json")
-	data, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal scan result: %v", err)
-	}
-
-	if err := os.WriteFile(resultPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to save scan result: %v", err)
-	}
-
-	return nil
-}
-
-// StartScan starts an automatic scan
-func (a *App) StartScan(configID string) (*ScanResult, error) {
-	// Get scan configuration
-	config, err := a.GetScanConfig(configID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get target
-	target, err := a.GetScanTarget(config.TargetID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create scan result
-	result := &ScanResult{
-		ID:           uuid.New().String(),
-		ScanConfigID: configID,
-		StartTime:    time.Now().Format(time.RFC3339),
-		Status:       "running",
-	}
-
-	// Add to active scans
-	a.activeScansMutex.Lock()
-	a.activeScans[result.ID] = result
-	a.activeScansMutex.Unlock()
-
-	// Start scan in a goroutine
-	go func() {
-		a.runScan(result, *config, *target)
-
-		// Remove from active scans when done
-		a.activeScansMutex.Lock()
-		delete(a.activeScans, result.ID)
-		a.activeScansMutex.Unlock()
-
-		// Save the final result
-		if err := a.SaveScanResult(*result); err != nil {
-			fmt.Printf("Failed to save scan result: %v\n", err)
-		}
-	}()
-
-	return result, nil
-}
-
-// GetScanResult gets the result of a scan
-func (a *App) GetScanResult(id string) (*ScanResult, error) {
-	// First check active scans
-	a.activeScansMutex.RLock()
-	result, exists := a.activeScans[id]
-	a.activeScansMutex.RUnlock()
-
-	if exists {
-		return result, nil
-	}
-
-	// Then check completed scans
-	a.scanResultsMutex.RLock()
-	defer a.scanResultsMutex.RUnlock()
-
-	result, exists = a.scanResultsCache[id]
-	if !exists {
-		return nil, fmt.Errorf("scan result not found: %s", id)
-	}
-
-	return result, nil
-}
-
-// GetScanResults gets all scan results
-func (a *App) GetScanResults() []ScanResult {
-	// Get completed scans
-	a.scanResultsMutex.RLock()
-	results := make([]ScanResult, 0, len(a.scanResultsCache))
-	for _, result := range a.scanResultsCache {
-		results = append(results, *result)
-	}
-	a.scanResultsMutex.RUnlock()
-
-	// Add active scans
-	a.activeScansMutex.RLock()
-	for _, result := range a.activeScans {
-		results = append(results, *result)
-	}
-	a.activeScansMutex.RUnlock()
-
-	return results
-}
-
-// runScan runs an automatic scan
-func (a *App) runScan(result *ScanResult, config ScanConfig, target ScanTarget) {
-	// Set up crawling and scanning
-	visitedURLs := make(map[string]bool)
-	urlQueue := []string{target.BaseURL}
-
-	// Authenticate if needed
-	var authCookies []*http.Cookie
-	if config.Authentication != nil {
-		// TODO: Implement authentication and store cookies/tokens
-	}
-
-	// Process URLs up to max depth
-	depth := 0
-	for depth <= config.MaxDepth && len(urlQueue) > 0 && result.RequestCount < config.MaxRequests {
-		// Get next batch of URLs at current depth
-		urlsAtDepth := urlQueue
-		urlQueue = []string{}
-
-		for _, url := range urlsAtDepth {
-			// Skip if already visited
-			if visitedURLs[url] {
-				continue
-			}
-
-			// Mark as visited
-			visitedURLs[url] = true
-
-			// Test for vulnerabilities
-			newVulns, newURLs, err := a.testURL(url, config, target, authCookies)
-			if err != nil {
-				result.ErrorCount++
-				continue
-			}
-
-			// Add vulnerabilities to result
-			result.Vulnerabilities = append(result.Vulnerabilities, newVulns...)
-
-			// Add new URLs to queue for next depth
-			for _, newURL := range newURLs {
-				if !visitedURLs[newURL] {
-					urlQueue = append(urlQueue, newURL)
-				}
-			}
-
-			// Increment request count
-			result.RequestCount++
-
-			// Respect delay between requests
-			if config.RequestDelay > 0 {
-				time.Sleep(time.Duration(config.RequestDelay) * time.Millisecond)
-			}
-
-			// Check if we've reached the request limit
-			if result.RequestCount >= config.MaxRequests {
-				break
-			}
-		}
-
-		depth++
-	}
-
-	// Mark scan as completed
-	result.Status = "completed"
-	result.EndTime = time.Now().Format(time.RFC3339)
-
-	// TODO: Save result to storage
-}
-
-// testURL tests a URL for vulnerabilities
-func (a *App) testURL(url string, config ScanConfig, target ScanTarget, authCookies []*http.Cookie) ([]Vulnerability, []string, error) {
-	vulnerabilities := []Vulnerability{}
-	discoveredURLs := []string{}
-
-	// Create HTTP client
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // Don't follow redirects automatically
-		},
-	}
-
-	// First make a regular GET request to the URL
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Add cookies for authentication
-	for _, cookie := range authCookies {
-		req.AddCookie(cookie)
-	}
-
-	// Send request
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	// Extract links from response
-	// TODO: Implement HTML parsing to extract links
-
-	// Test for vulnerabilities based on config
-	for _, vulnType := range config.VulnerabilityTypes {
-		switch vulnType {
-		case XSS:
-			xssVulns := a.testXSS(url, client, authCookies)
-			vulnerabilities = append(vulnerabilities, xssVulns...)
-		case SQLInjection:
-			sqlVulns := a.testSQLInjection(url, client, authCookies)
-			vulnerabilities = append(vulnerabilities, sqlVulns...)
-		case CSRF:
-			csrfVulns := a.testCSRF(url, client, authCookies)
-			vulnerabilities = append(vulnerabilities, csrfVulns...)
-		case PathTraversal:
-			ptVulns := a.testPathTraversal(url, client, authCookies)
-			vulnerabilities = append(vulnerabilities, ptVulns...)
-		case OpenRedirect:
-			orVulns := a.testOpenRedirect(url, client, authCookies)
-			vulnerabilities = append(vulnerabilities, orVulns...)
-		}
-	}
-
-	return vulnerabilities, discoveredURLs, nil
-}
-
-// testXSS tests for XSS vulnerabilities
-func (a *App) testXSS(url string, client *http.Client, authCookies []*http.Cookie) []Vulnerability {
-	// TODO: Implement XSS testing
-	return []Vulnerability{}
-}
-
-// testSQLInjection tests for SQL injection vulnerabilities
-func (a *App) testSQLInjection(url string, client *http.Client, authCookies []*http.Cookie) []Vulnerability {
-	// TODO: Implement SQL injection testing
-	return []Vulnerability{}
-}
-
-// testCSRF tests for CSRF vulnerabilities
-func (a *App) testCSRF(url string, client *http.Client, authCookies []*http.Cookie) []Vulnerability {
-	// TODO: Implement CSRF testing
-	return []Vulnerability{}
-}
-
-// testPathTraversal tests for path traversal vulnerabilities
-func (a *App) testPathTraversal(url string, client *http.Client, authCookies []*http.Cookie) []Vulnerability {
-	// TODO: Implement path traversal testing
-	return []Vulnerability{}
-}
-
-// testOpenRedirect tests for open redirect vulnerabilities
-func (a *App) testOpenRedirect(url string, client *http.Client, authCookies []*http.Cookie) []Vulnerability {
-	// TODO: Implement open redirect testing
-	return []Vulnerability{}
 }
 
 // GetTransactionDetails returns the full details for a specific transaction ID
@@ -1178,12 +705,6 @@ func (a *App) markDirty(component string) {
 		a.dirtyGleipFlows = true
 	case "api_collections":
 		a.dirtyAPICollections = true
-	case "scan_targets":
-		a.dirtyScanTargets = true
-	case "scan_configs":
-		a.dirtyScanConfigs = true
-	case "scan_results":
-		a.dirtyScanResults = true
 	case "project_meta":
 		a.dirtyProjectMeta = true
 	}
@@ -1197,9 +718,6 @@ func (a *App) clearDirtyFlags() {
 	a.dirtyRequestHistory = false
 	a.dirtyGleipFlows = false
 	a.dirtyAPICollections = false
-	a.dirtyScanTargets = false
-	a.dirtyScanConfigs = false
-	a.dirtyScanResults = false
 	a.dirtyProjectMeta = false
 }
 
@@ -1218,15 +736,6 @@ func (a *App) getDirtyComponents() []string {
 	if a.dirtyAPICollections {
 		dirty = append(dirty, "api_collections")
 	}
-	if a.dirtyScanTargets {
-		dirty = append(dirty, "scan_targets")
-	}
-	if a.dirtyScanConfigs {
-		dirty = append(dirty, "scan_configs")
-	}
-	if a.dirtyScanResults {
-		dirty = append(dirty, "scan_results")
-	}
 	if a.dirtyProjectMeta {
 		dirty = append(dirty, "project_meta")
 	}
@@ -1238,8 +747,7 @@ func (a *App) hasDirtyComponents() bool {
 	a.dirtyStateMutex.RLock()
 	defer a.dirtyStateMutex.RUnlock()
 
-	return a.dirtyRequestHistory || a.dirtyGleipFlows || a.dirtyAPICollections ||
-		a.dirtyScanTargets || a.dirtyScanConfigs || a.dirtyScanResults || a.dirtyProjectMeta
+	return a.dirtyRequestHistory || a.dirtyGleipFlows || a.dirtyAPICollections || a.dirtyProjectMeta
 }
 
 // requestAutoSaveWithComponent schedules an auto-save and marks a component as dirty
@@ -1282,4 +790,109 @@ func (a *App) GetAppVersion() map[string]interface{} {
 		"version":     AppVersion,
 		"fullVersion": AppVersion,
 	}
+}
+
+// GetAvailableChefActions returns all available chef actions
+func (a *App) GetAvailableChefActions() []map[string]string {
+	return chef.GetAvailableActions()
+}
+
+// GetChefActionPreview generates a preview for a chef action
+func (a *App) GetChefActionPreview(actionType string, input string, options map[string]interface{}) string {
+	action := chef.ChefAction{
+		ActionType: actionType,
+		Options:    options,
+	}
+	return chef.GetPreview(action, input)
+}
+
+// GetChefStepSequentialPreview generates previews for a sequence of chef actions
+func (a *App) GetChefStepSequentialPreview(actions []chef.ChefAction, inputValue string) ([]string, error) {
+	if len(actions) == 0 {
+		return []string{}, nil
+	}
+
+	return chef.GetAllSequentialPreviews(actions, inputValue)
+}
+
+// GetAvailableVariablesForStep returns all available variables for a given step in a gleipflow
+func (a *App) GetAvailableVariablesForStep(gleipFlowID string, stepIndex int) ([]string, error) {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	return a.gleipFlowExecutor.GetAvailableVariablesForStep(gleipFlow, stepIndex), nil
+}
+
+// GetAvailableVariableValuesForStep returns all available variables and their values for a given step in a gleipflow
+func (a *App) GetAvailableVariableValuesForStep(gleipFlowID string, stepIndex int) (map[string]string, error) {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+	return a.gleipFlowExecutor.GetAvailableVariableValuesForStep(gleipFlow, stepIndex), nil
+}
+
+// UpdateGleipFlow updates a gleipFlow and automatically saves
+func (a *App) UpdateGleipFlow(gleipFlow GleipFlow) error {
+	fmt.Printf("DEBUG: UpdateGleipFlow called with flow ID: %s, name: %s\n", gleipFlow.ID, gleipFlow.Name)
+
+	// Generate ID if not present
+	if gleipFlow.ID == "" {
+		gleipFlow.ID = uuid.New().String()
+		fmt.Printf("DEBUG: Generated new ID for flow: %s\n", gleipFlow.ID)
+		TrackFlowCreated(gleipFlow.ID, "custom")
+	}
+
+	// Ensure sortingIndex is valid (>= 1)
+	if gleipFlow.SortingIndex < 1 {
+		// Find the highest sorting index and add 1
+		highestIndex := 0
+		for _, g := range a.gleipFlowsCache {
+			if g.SortingIndex > highestIndex {
+				highestIndex = g.SortingIndex
+			}
+		}
+		gleipFlow.SortingIndex = highestIndex + 1
+	}
+
+	a.gleipFlowsMutex.Lock()
+	// ALWAYS preserve execution results - UpdateGleipFlow should never touch them
+	if existingFlow, exists := a.gleipFlowsCache[gleipFlow.ID]; exists {
+		gleipFlow.ExecutionResults = existingFlow.ExecutionResults
+		fmt.Printf("DEBUG: Preserved %d execution results from cache\n", len(gleipFlow.ExecutionResults))
+	} else {
+		fmt.Printf("DEBUG: No existing flow in cache, execution results: %d\n", len(gleipFlow.ExecutionResults))
+	}
+	// Update the cache
+	a.gleipFlowsCache[gleipFlow.ID] = &gleipFlow
+	a.gleipFlowsMutex.Unlock()
+
+	// Also update the project's GleipFlows array to keep them in sync
+	a.projectMutex.Lock()
+	if a.currentProject != nil {
+		// Find and update existing GleipFlow in project, or add new one
+		found := false
+		for i, projectGleipFlow := range a.currentProject.GleipFlows {
+			if projectGleipFlow.ID == gleipFlow.ID {
+				// Update existing - execution results already preserved from cache above
+				a.currentProject.GleipFlows[i] = &gleipFlow
+				found = true
+				fmt.Printf("DEBUG: Updated existing project flow\n")
+				break
+			}
+		}
+		if !found {
+			// Add new GleipFlow to project
+			a.currentProject.GleipFlows = append(a.currentProject.GleipFlows, &gleipFlow)
+			fmt.Printf("DEBUG: Added new flow to project with %d execution results\n", len(gleipFlow.ExecutionResults))
+		}
+	}
+	a.projectMutex.Unlock()
+
+	// AUTOMATICALLY save to persist the project changes
+	a.requestAutoSaveWithComponent("gleip_flows")
+
+	return nil
 }

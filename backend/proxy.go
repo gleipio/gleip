@@ -3,6 +3,7 @@ package backend
 import (
 	"Gleip/backend/cert"
 	"Gleip/backend/network"
+	"Gleip/backend/network/http_utils"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -460,7 +461,7 @@ func (p *ProxyServer) ForwardInterceptedRequest(id string, method, url string, h
 // executeForwardedRequest executes a forwarded intercepted request
 func (p *ProxyServer) executeForwardedRequest(req *network.HTTPTransaction, method, url, rawRequest string) {
 	// Parse the raw HTTP request to extract headers and body
-	parsedHeaders, body, err := network.ParseRawHTTPRequest(rawRequest)
+	parsedHeaders, body, err := http_utils.ParseRawHTTPRequest(rawRequest)
 	if err != nil {
 		fmt.Printf("Error parsing raw HTTP request: %v\n", err)
 		// Signal completion even on error
@@ -586,7 +587,7 @@ func (p *ProxyServer) handleProxy(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received request: %s %s (Host: %s)\n", r.Method, r.URL, r.Host)
 
 	// Check if the user is directly accessing the proxy server itself
-	if network.IsProxyHost(r.Host) {
+	if http_utils.IsProxyHost(r.Host) {
 		p.handleDirectProxyAccess(w, r)
 		return
 	}

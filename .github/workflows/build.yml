@@ -2,11 +2,16 @@ name: Build on Push
 
 on:
   push:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'cmd/**'
+      - 'main.go'
+      - 'wails.json'
     branches: [ main, develop ]
+  workflow_dispatch:
   pull_request:
     branches: [ main ]
-  release:
-    types: [ created ]
 
 jobs:
   build:
@@ -47,11 +52,15 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.23'
+        cache: true
+        cache-dependency-path: go.sum
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
 
     # Platform-specific dependency installation
     - name: Install Linux dependencies
@@ -59,26 +68,6 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
-        
-        # Create webkit compatibility symlink (architecture-aware)
-        if [ "${{ matrix.arch }}" = "amd64" ]; then
-          ARCH_DIR="x86_64-linux-gnu"
-        elif [ "${{ matrix.arch }}" = "arm64" ]; then
-          ARCH_DIR="aarch64-linux-gnu"
-        fi
-        
-        # Create webkit compatibility symlink if the source file exists
-        WEBKIT_SOURCE="/usr/lib/${ARCH_DIR}/pkgconfig/webkit2gtk-4.1.pc"
-        WEBKIT_TARGET="/usr/lib/${ARCH_DIR}/pkgconfig/webkit2gtk-4.0.pc"
-        
-        if [ -f "$WEBKIT_SOURCE" ]; then
-          echo "Creating webkit compatibility symlink: $WEBKIT_TARGET -> webkit2gtk-4.1.pc"
-          sudo ln -sf webkit2gtk-4.1.pc "$WEBKIT_TARGET"
-        else
-          echo "Warning: WebKit source file not found at $WEBKIT_SOURCE"
-          echo "Available files in /usr/lib/${ARCH_DIR}/pkgconfig/:"
-          ls -la "/usr/lib/${ARCH_DIR}/pkgconfig/" || echo "Directory not found"
-        fi
 
     - name: Install macOS dependencies
       if: matrix.os == 'darwin'
@@ -168,14 +157,7 @@ jobs:
             cp "./build/bin/Gleip.exe" "dist/gleip-${{ env.VERSION }}-windows-${{ matrix.arch }}.exe"
           fi
         elif [ "${{ matrix.os }}" = "darwin" ]; then
-          if [ -f "./build/bin/"*.dmg ]; then
-            for dmg in "./build/bin/"*.dmg; do
-              if [ -f "$dmg" ]; then
-                cp "$dmg" "dist/gleip-${{ env.VERSION }}-macos-${{ matrix.arch }}.dmg"
-              fi
-            done
-          fi
-          if [ -f "./build/bin/Gleip.app" ]; then
+          if [ -d "./build/bin/Gleip.app" ]; then
             tar -czf "dist/gleip-${{ env.VERSION }}-macos-${{ matrix.arch }}.tar.gz" -C "./build/bin" "Gleip.app"
           fi
         elif [ "${{ matrix.os }}" = "linux" ]; then
@@ -233,51 +215,4 @@ jobs:
       with:
         files: release-artifacts/*/*
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Alternative: Build all platforms in one job (useful for testing)
-  build-all:
-    name: Build All Platforms (Single Job)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && contains(github.ref, 'refs/heads/test-build')
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.23'
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-
-    - name: Install Linux dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
-        sudo ln -sf /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
-
-    - name: Install Wails
-      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-    # Set environment variable to skip code signing in CI
-    - name: Set CI environment
-      run: echo "GLEIP_CI_BUILD=true" >> $GITHUB_ENV
-
-    # This will attempt cross-compilation (may have limitations)
-    - name: Build for all platforms
-      run: go run cmd/build-tool/main.go build-all
-      env:
-        POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
-        POSTHOG_ENDPOINT: ${{ secrets.POSTHOG_ENDPOINT }}
-
-    - name: Upload all artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: gleip-all-platforms
-        path: build/bin/
-        retention-days: 5 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

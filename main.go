@@ -4,6 +4,7 @@ import (
 	"embed"
 
 	"Gleip/backend"
+	"Gleip/backend/network"
 	"Gleip/backend/paths"
 
 	"github.com/wailsapp/wails/v2"
@@ -45,7 +46,7 @@ func main() {
 	settingsController := backend.NewSettingsController()
 
 	// Initialize HTTP helper for frontend
-	httpHelper := backend.NewHTTPHelper()
+	httpHelper := network.NewHTTPHelper()
 
 	// Create application with options
 	err := wails.Run(&options.App{

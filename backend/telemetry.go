@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"Gleip/backend/paths"
 	"fmt"
 	"strings"
 
@@ -10,8 +11,8 @@ import (
 
 // These variables will be injected at compile time via ldflags
 var (
-	PostHogAPIKey   = ""                         // Injected at compile time - no default for security
-	PostHogEndpoint = "https://eu.i.posthog.com" // Default endpoint
+	PostHogAPIKey   = ""                                        // Injected at compile time - no default for security
+	PostHogEndpoint = paths.GlobalURLs.Services.PostHogEndpoint // Use centralized endpoint from paths
 )
 
 var (
@@ -193,6 +194,16 @@ func TrackFlowStepExecuted(flowID string, stepType string, success bool) {
 		"flowId":   flowID,
 		"stepType": stepType,
 		"success":  success,
+	})
+}
+
+// TrackChefStepExecuted tracks when a chef step is executed
+func TrackChefStepExecuted(flowID string, stepID string, actionCount int, success bool) {
+	trackEvent(CategoryFlow, "chef_step_executed", map[string]interface{}{
+		"flowId":      flowID,
+		"stepId":      stepID,
+		"actionCount": actionCount,
+		"success":     success,
 	})
 }
 

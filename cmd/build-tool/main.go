@@ -20,27 +20,12 @@ const (
 	goCertFile    = "./backend/cert/gleip_certificate.go"
 )
 
-type BuildTarget struct {
-	OS   string
-	Arch string
-	Ext  string
-}
-
-var supportedTargets = []BuildTarget{
-	{"windows", "amd64", ".exe"},
-	{"windows", "arm64", ".exe"},
-	{"darwin", "amd64", ""},
-	{"darwin", "arm64", ""},
-	{"linux", "amd64", ""},
-	{"linux", "arm64", ""},
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		if filesExist(filepath.Join(caDir, "gleip.cer"), filepath.Join(caDir, "gleip.key")) {
 			// Early check for required tools only when building
 			checkAndInstallDependencies()
-			runCommand("build", "")
+			runCommand("build")
 		} else {
 			showHelp()
 		}
@@ -48,10 +33,6 @@ func main() {
 	}
 
 	command := os.Args[1]
-	target := ""
-	if len(os.Args) > 2 {
-		target = os.Args[2]
-	}
 
 	switch command {
 	case "help", "--help":
@@ -63,36 +44,34 @@ func main() {
 	case "certs":
 		// Check dependencies needed for certificate generation
 		checkAndInstallDependencies()
-		runCommand("certs", "")
+		runCommand("certs")
 	case "save-certs":
 		// Generate and save certificate databases for reuse
 		checkAndInstallDependencies()
-		runCommand("certs", "")
+		runCommand("certs")
 		saveCertificateDatabases()
 	case "dev":
 		// Check dependencies needed for development
 		checkAndInstallDependencies()
-		runCommand("dev", "")
+		runCommand("dev")
 	case "build":
 		// Check dependencies needed for building
 		checkAndInstallDependencies()
-		runCommand("build", target)
-	case "build-all":
-		// Check dependencies needed for building
-		checkAndInstallDependencies()
-		runBuildAll()
+		runCommand("build")
 	case "sign-dmg":
 		// Sign a CI-built DMG with local certificate
-		if target == "" {
+		if len(os.Args) < 3 {
 			fmt.Println("Usage: go run cmd/build-tool/main.go sign-dmg <path-to-dmg>")
 			os.Exit(1)
 		}
-		signCIDmg(target)
+		signCIDmg(os.Args[2])
+	case "package-dmg":
+		// Package existing .app as DMG
+		checkAndInstallDependencies()
+		packageMacOSWithDMG(extractVersion())
 	case "publish":
 		// Publish release from CI artifacts
 		publishRelease()
-	case "targets":
-		showTargets()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		showHelp()
@@ -161,342 +140,27 @@ func getGoBinPath() string {
 }
 
 func showHelp() {
-	fmt.Println("Usage: go run cmd/build-tool/main.go [command] [target]")
+	fmt.Println("Usage: go run cmd/build-tool/main.go [command]")
 	fmt.Println("")
 	fmt.Println("Commands:")
-	fmt.Println("  build       Build the Gleip application (default)")
-	fmt.Println("  build-all   Build for all supported platforms")
+	fmt.Println("  build       Build the Gleip application for current platform (default)")
 	fmt.Println("  dev         Run in development mode")
 	fmt.Println("  certs       Generate certificate files only")
 	fmt.Println("  save-certs  Generate and save certificate databases for CI reuse")
+	fmt.Println("  package-dmg Package existing .app as signed DMG (macOS only)")
 	fmt.Println("  sign-dmg    Sign a CI-built DMG with local certificate")
 	fmt.Println("  publish     Download CI artifacts, sign DMGs, and publish release")
 	fmt.Println("  clean       Remove build artifacts")
 	fmt.Println("  deps        Install platform dependencies")
-	fmt.Println("  targets     Show supported build targets")
 	fmt.Println("  help        Show this help message")
-	fmt.Println("")
-	fmt.Println("Build targets (for build command):")
-	fmt.Println("  windows/amd64, windows/arm64, darwin/amd64, darwin/arm64, linux/amd64, linux/arm64")
-	fmt.Println("  If no target specified, builds for current platform")
 	fmt.Println("")
 	fmt.Println("Examples:")
 	fmt.Println("  go run cmd/build-tool/main.go build")
-	fmt.Println("  go run cmd/build-tool/main.go build windows/amd64")
-	fmt.Println("  go run cmd/build-tool/main.go build-all")
 	fmt.Println("  go run cmd/build-tool/main.go save-certs  # Run on Linux/Mac, then commit")
+	fmt.Println("  go run cmd/build-tool/main.go package-dmg  # Package .app as DMG")
 	fmt.Println("  go run cmd/build-tool/main.go sign-dmg ./downloaded-build.dmg")
 	fmt.Println("  go run cmd/build-tool/main.go publish    # Download, sign, and release")
 	fmt.Println("  go run cmd/build-tool/main.go dev")
-}
-
-func showTargets() {
-	fmt.Println("Supported build targets:")
-	for _, target := range supportedTargets {
-		fmt.Printf("  %s/%s\n", target.OS, target.Arch)
-	}
-}
-
-func runBuildAll() {
-	fmt.Println("=== Building for All Platforms ===")
-
-	// Check dependencies first
-	checkBuildDependencies()
-
-	// First generate certificates (only needed once)
-	fmt.Println("Generating certificates...")
-	runCommand("certs", "")
-
-	// Install dependencies for current platform
-	fmt.Println("Installing dependencies...")
-	runCmdSilent("go", "mod", "tidy")
-	if fileExists("frontend") {
-		runCmdInDirSilent("frontend", "npm", "install")
-	}
-
-	// Note about cross-compilation limitations
-	fmt.Println("\n⚠️  Note: Wails has limitations with cross-compilation for GUI applications.")
-	fmt.Printf("Building for current platform (%s/%s) and attempting cross-compilation for others.\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Println("For best results, build natively on each target platform.\n")
-
-	// Build for each target
-	successCount := 0
-	failCount := 0
-
-	for _, target := range supportedTargets {
-		targetStr := fmt.Sprintf("%s/%s", target.OS, target.Arch)
-		fmt.Printf("\n--- Building for %s ---\n", targetStr)
-
-		if target.OS == runtime.GOOS && target.Arch == runtime.GOARCH {
-			// Native build - this should work reliably
-			fmt.Println("🏠 Native build - should work reliably")
-			if buildForTarget(target) {
-				fmt.Printf("✅ Build successful for %s\n", targetStr)
-				successCount++
-			} else {
-				fmt.Printf("❌ Build failed for %s\n", targetStr)
-				failCount++
-			}
-		} else {
-			// Cross-compilation - may have limitations
-			fmt.Println("🌐 Cross-compilation - may have limitations")
-			if buildForTarget(target) {
-				fmt.Printf("✅ Build successful for %s\n", targetStr)
-				successCount++
-			} else {
-				fmt.Printf("❌ Build failed for %s (this is expected for cross-compilation)\n", targetStr)
-				failCount++
-			}
-		}
-	}
-
-	fmt.Printf("\n=== Build Summary ===\n")
-	fmt.Printf("✅ Successful builds: %d\n", successCount)
-	fmt.Printf("❌ Failed builds: %d\n", failCount)
-
-	if failCount > 0 {
-		fmt.Println("\n💡 Tips for failed cross-compilation builds:")
-		fmt.Println("  - Use GitHub Actions CI/CD for multi-platform builds")
-		fmt.Println("  - Build natively on each target platform")
-		fmt.Println("  - Consider using our provided CI/CD pipeline")
-	}
-
-	if successCount > 0 {
-		fmt.Println("\nBuilt artifacts:")
-		listBuiltArtifacts()
-	}
-}
-
-func checkBuildDependencies() {
-	fmt.Println("Checking build dependencies...")
-
-	// Check Go
-	if !commandExists("go") {
-		fmt.Println("❌ Go not found. Please install Go.")
-		os.Exit(1)
-	}
-
-	// Check Node.js
-	if !commandExists("node") {
-		fmt.Println("❌ Node.js not found. Please install Node.js.")
-		os.Exit(1)
-	}
-
-	// Check npm
-	if !commandExists("npm") {
-		fmt.Println("❌ npm not found. Please install npm.")
-		os.Exit(1)
-	}
-
-	// Check wails (should already be installed by checkAndInstallDependencies)
-	if !commandExists("wails") {
-		fmt.Println("❌ Wails not found. This shouldn't happen after dependency check.")
-		os.Exit(1)
-	}
-
-	fmt.Println("✅ All build dependencies found")
-}
-
-func buildForTarget(target BuildTarget) bool {
-	isNative := target.OS == runtime.GOOS && target.Arch == runtime.GOARCH
-
-	// Create target-specific output directory
-	var outputDir string
-	if isNative {
-		outputDir = "./build/bin"
-	} else {
-		outputDir = fmt.Sprintf("./build/bin/%s-%s", target.OS, target.Arch)
-	}
-	os.MkdirAll(outputDir, 0755)
-
-	// Extract version for ldflags
-	version := extractVersion()
-
-	// Get PostHog configuration from environment variables
-	posthogAPIKey := os.Getenv("POSTHOG_API_KEY")
-	posthogEndpoint := os.Getenv("POSTHOG_ENDPOINT")
-
-	// Use default endpoint if not specified
-	if posthogEndpoint == "" {
-		posthogEndpoint = "https://eu.i.posthog.com"
-	}
-
-	// If no API key is provided, telemetry will be disabled at runtime
-	if posthogAPIKey == "" {
-		fmt.Println("⚠️  No POSTHOG_API_KEY provided - telemetry will be disabled")
-		posthogAPIKey = "disabled" // Placeholder to indicate disabled state
-	}
-
-	// Build ldflags with version and PostHog configuration
-	ldflags := fmt.Sprintf("-X 'Gleip/backend.AppVersion=%s' -X 'Gleip/backend.PostHogAPIKey=%s' -X 'Gleip/backend.PostHogEndpoint=%s'",
-		version, posthogAPIKey, posthogEndpoint)
-
-	// Prepare wails command
-	var args []string
-	if isNative {
-		// Native build - use simpler approach
-		args = []string{"build", "-clean", "-ldflags", ldflags}
-	} else {
-		// Cross-compilation - try platform flag
-		args = []string{"build", "-clean", "-platform", fmt.Sprintf("%s/%s", target.OS, target.Arch), "-ldflags", ldflags}
-	}
-
-	// Add output directory
-	args = append(args, "-o", outputDir)
-
-	fmt.Printf("Running: wails %s\n", strings.Join(args, " "))
-	cmd := exec.Command("wails", args...)
-
-	// Set environment variables for cross-compilation
-	env := os.Environ()
-	env = append(env, fmt.Sprintf("GOOS=%s", target.OS))
-	env = append(env, fmt.Sprintf("GOARCH=%s", target.Arch))
-	cmd.Env = env
-
-	// For cross-compilation, capture output to provide better feedback
-	if isNative {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("Native build failed: %v\n", err)
-			return false
-		}
-	} else {
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("Cross-compilation failed (expected): %v\n", err)
-			if strings.Contains(string(output), "exec format error") {
-				fmt.Println("  → This is a common cross-compilation limitation")
-			}
-			return false
-		}
-	}
-
-	// Check if build artifacts were created
-	if !verifyBuildArtifacts(outputDir, target) {
-		fmt.Printf("Build completed but no artifacts found for %s/%s\n", target.OS, target.Arch)
-		// For cross-compilation, also check if artifacts were created in unexpected locations
-		if !isNative {
-			alternativeLocations := []string{
-				"./build/bin",
-				fmt.Sprintf("./build/bin/%s", target.OS),
-				"./dist",
-			}
-			for _, altDir := range alternativeLocations {
-				if verifyBuildArtifacts(altDir, target) {
-					fmt.Printf("  → Found artifacts in %s instead\n", altDir)
-					// Move artifacts to expected location
-					moveArtifacts(altDir, outputDir, target)
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	// Post-build packaging for specific platforms
-	if target.OS == "darwin" {
-		packageMacOSCrossCompiled(outputDir, version, target.Arch)
-	}
-
-	return true
-}
-
-func moveArtifacts(fromDir, toDir string, target BuildTarget) {
-	var artifactName string
-	switch target.OS {
-	case "windows":
-		artifactName = "Gleip.exe"
-	case "darwin":
-		artifactName = "Gleip.app"
-	case "linux":
-		artifactName = "Gleip"
-	}
-
-	fromPath := filepath.Join(fromDir, artifactName)
-	toPath := filepath.Join(toDir, artifactName)
-
-	if fileExists(fromPath) {
-		os.MkdirAll(toDir, 0755)
-		if err := os.Rename(fromPath, toPath); err != nil {
-			fmt.Printf("  → Failed to move artifact: %v\n", err)
-		} else {
-			fmt.Printf("  → Moved artifact to %s\n", toPath)
-		}
-	}
-}
-
-func verifyBuildArtifacts(outputDir string, target BuildTarget) bool {
-	switch target.OS {
-	case "windows":
-		return fileExists(filepath.Join(outputDir, "Gleip.exe"))
-	case "darwin":
-		return fileExists(filepath.Join(outputDir, "Gleip.app"))
-	case "linux":
-		return fileExists(filepath.Join(outputDir, "Gleip"))
-	}
-	return false
-}
-
-func listBuiltArtifacts() {
-	fmt.Println("Built artifacts:")
-
-	// Check native build first
-	nativePath := "./build/bin"
-	if target := findNativeArtifact(nativePath); target != "" {
-		fmt.Printf("  Native (%s/%s): %s\n", runtime.GOOS, runtime.GOARCH, target)
-	}
-
-	// Check cross-compiled builds
-	for _, target := range supportedTargets {
-		targetDir := fmt.Sprintf("./build/bin/%s-%s", target.OS, target.Arch)
-		if artifacts := findArtifactsInDir(targetDir, target); len(artifacts) > 0 {
-			for _, artifact := range artifacts {
-				fmt.Printf("  %s/%s: %s\n", target.OS, target.Arch, artifact)
-			}
-		}
-	}
-}
-
-func findNativeArtifact(dir string) string {
-	patterns := []string{"Gleip.exe", "Gleip.app", "Gleip"}
-	for _, pattern := range patterns {
-		path := filepath.Join(dir, pattern)
-		if fileExists(path) {
-			return path
-		}
-	}
-	return ""
-}
-
-func findArtifactsInDir(dir string, target BuildTarget) []string {
-	var artifacts []string
-
-	if !fileExists(dir) {
-		return artifacts
-	}
-
-	// Look for platform-specific artifacts
-	switch target.OS {
-	case "windows":
-		if path := filepath.Join(dir, "Gleip.exe"); fileExists(path) {
-			artifacts = append(artifacts, path)
-		}
-	case "darwin":
-		if path := filepath.Join(dir, "Gleip.app"); fileExists(path) {
-			artifacts = append(artifacts, path)
-		}
-		// Also check for DMG files
-		if files, err := filepath.Glob(filepath.Join(dir, "*.dmg")); err == nil {
-			artifacts = append(artifacts, files...)
-		}
-	case "linux":
-		if path := filepath.Join(dir, "Gleip"); fileExists(path) {
-			artifacts = append(artifacts, path)
-		}
-	}
-
-	return artifacts
 }
 
 func runClean() {
@@ -508,7 +172,7 @@ func runClean() {
 		"./frontend/dist",
 		"./.wails",
 		tempCertdbDir,
-		"./build/bin", // Remove entire bin directory including cross-compiled builds
+		"./build/bin",
 	}
 
 	for _, dir := range dirsToRemove {
@@ -584,13 +248,9 @@ func installDependencies() {
 	fmt.Println("✅ Dependencies installation complete")
 }
 
-func runCommand(command string, targetPlatform string) {
+func runCommand(command string) {
 	fmt.Printf("=== Gleip Process (Mode: %s) ===\n", command)
-	if targetPlatform != "" {
-		fmt.Printf("Target Platform: %s\n", targetPlatform)
-	} else {
-		fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	}
+	fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
 	// Create directories
 	os.MkdirAll(tempCertdbDir, 0755)
@@ -628,63 +288,152 @@ func runCommand(command string, targetPlatform string) {
 
 	// Extract version for ldflags
 	version := extractVersion()
-	ldflags := fmt.Sprintf("-X 'Gleip/backend.AppVersion=%s'", version)
+
+	// Get PostHog configuration from environment variables
+	posthogAPIKey := os.Getenv("POSTHOG_API_KEY")
+	posthogEndpoint := os.Getenv("POSTHOG_ENDPOINT")
+
+	// Use default endpoint if not specified
+	if posthogEndpoint == "" {
+		posthogEndpoint = "https://eu.i.posthog.com"
+	}
+
+	// If no API key is provided, telemetry will be disabled at runtime
+	if posthogAPIKey == "" {
+		fmt.Println("⚠️  No POSTHOG_API_KEY provided - telemetry will be disabled")
+		posthogAPIKey = "disabled" // Placeholder to indicate disabled state
+	}
+
+	// Build ldflags with version and PostHog configuration
+	ldflags := fmt.Sprintf("-X 'Gleip/backend.AppVersion=%s' -X 'Gleip/backend.PostHogAPIKey=%s' -X 'Gleip/backend.PostHogEndpoint=%s'",
+		version, posthogAPIKey, posthogEndpoint)
 
 	// Build or dev
 	switch command {
 	case "build":
-		if targetPlatform != "" {
-			buildSpecificTarget(targetPlatform)
-		} else {
-			fmt.Printf("Building application for current platform (version: %s)...\n", version)
-			runCmd("wails", "build", "-clean", "-ldflags", ldflags)
+		fmt.Printf("Building application for current platform (version: %s)...\n", version)
 
-			// Package application
-			packageApplication(version)
+		// Build command arguments
+		buildArgs := []string{"build", "-clean", "-ldflags", ldflags}
+
+		// Add webkit2_41 build tag for Linux to fix webkit2gtk-4.0 compatibility
+		if runtime.GOOS == "linux" {
+			buildArgs = append(buildArgs, "-tags", "webkit2_41")
 		}
+
+		runCmd("wails", buildArgs...)
+
+		// Package application
+		packageApplication()
 
 	case "dev":
 		fmt.Println("Starting development server...")
-		runCmd("wails", "dev", "-ldflags", ldflags)
+
+		// Dev command arguments
+		devArgs := []string{"dev", "-ldflags", ldflags}
+
+		// Add webkit2_41 build tag for Linux to fix webkit2gtk-4.0 compatibility
+		if runtime.GOOS == "linux" {
+			devArgs = append(devArgs, "-tags", "webkit2_41")
+		}
+
+		runCmd("wails", devArgs...)
 	}
 
 	fmt.Printf("=== Process Complete (Mode: %s) ===\n", command)
 }
 
-func buildSpecificTarget(targetPlatform string) {
-	parts := strings.Split(targetPlatform, "/")
-	if len(parts) != 2 {
-		fmt.Printf("Invalid target format: %s. Use format: os/arch (e.g., windows/amd64)\n", targetPlatform)
-		os.Exit(1)
+func packageApplication() {
+	switch runtime.GOOS {
+	case "darwin":
+		packageMacOS()
+	case "windows":
+		packageWindows()
+	case "linux":
+		packageLinux()
+	}
+}
+
+func packageMacOS() {
+	appPath := "./build/bin/Gleip.app"
+	if !fileExists(appPath) {
+		return
 	}
 
-	targetOS := parts[0]
-	targetArch := parts[1]
+	fmt.Printf("✅ Application created: %s\n", appPath)
+}
 
-	// Validate target
-	validTarget := false
-	for _, target := range supportedTargets {
-		if target.OS == targetOS && target.Arch == targetArch {
-			validTarget = true
-			break
-		}
+func packageMacOSWithDMG(version string) {
+	appPath := "./build/bin/Gleip.app"
+	if !fileExists(appPath) {
+		return
 	}
 
-	if !validTarget {
-		fmt.Printf("Unsupported target: %s\n", targetPlatform)
-		fmt.Println("Run 'go run cmd/build-tool/main.go targets' to see supported targets")
-		os.Exit(1)
+	signApp(appPath)
+	createDMG(appPath, version)
+}
+
+func packageWindows() {
+	exePath := "./build/bin/Gleip.exe"
+	if fileExists(exePath) {
+		fmt.Printf("✅ Executable created: %s\n", exePath)
+	}
+}
+
+func packageLinux() {
+	binPath := "./build/bin/Gleip"
+	if fileExists(binPath) {
+		fmt.Printf("✅ Executable created: %s\n", binPath)
+	}
+}
+
+func signApp(appPath string) {
+	if !commandExists("codesign") {
+		return
 	}
 
-	fmt.Printf("Building for %s...\n", targetPlatform)
+	if os.Getenv("GLEIP_CI_BUILD") != "" && os.Getenv("ENABLE_CODE_SIGNING") != "true" {
+		fmt.Println("Skipping code signing in CI environment...")
+		return
+	}
 
-	target := BuildTarget{OS: targetOS, Arch: targetArch}
-	if buildForTarget(target) {
-		fmt.Printf("✅ Build successful for %s\n", targetPlatform)
+	if os.Getenv("ENABLE_CODE_SIGNING") == "true" {
+		// Release builds with proper certificates
+		fmt.Println("Signing application for release...")
+		runCmd("codesign", "--force", "--deep", "--sign", "Gleip.io", appPath)
 	} else {
-		fmt.Printf("❌ Build failed for %s\n", targetPlatform)
-		os.Exit(1)
+		// Local development builds
+		fmt.Println("Signing application with development certificate...")
+		runCmd("codesign", "--force", "--deep", "--sign", "Gleip.io", appPath)
 	}
+
+	// Verify the signature
+	fmt.Println("Verifying code signature...")
+	runCmd("codesign", "--verify", "--verbose", appPath)
+}
+
+func createDMG(appPath, version string) {
+	// Extract architecture from the app path or parent directory
+	arch := runtime.GOARCH // fallback
+	arch = "arm64"
+
+	dmgName := fmt.Sprintf("gleip-%s-macos-%s.dmg", version, arch)
+	dmgPath := filepath.Join(filepath.Dir(appPath), dmgName)
+	tempDir := filepath.Join(filepath.Dir(appPath), "dmg_temp")
+
+	os.MkdirAll(tempDir, 0755)
+	runCmd("cp", "-R", appPath, tempDir+"/")
+
+	if commandExists("create-dmg") {
+		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, tempDir)
+	} else if commandExists("hdiutil") {
+		// Create Applications symlink for hdiutil
+		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
+		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
+	}
+
+	os.RemoveAll(tempDir)
+	fmt.Printf("✅ Distribution DMG created: %s\n", dmgPath)
 }
 
 func generateCertificateDatabases(caCertPath string) {
@@ -922,172 +671,6 @@ func extractVersion() string {
 	return "unknown"
 }
 
-func packageApplication(version string) {
-	switch runtime.GOOS {
-	case "darwin":
-		packageMacOS(version)
-	case "windows":
-		packageWindows(version)
-	case "linux":
-		packageLinux(version)
-	}
-}
-
-func packageMacOS(version string) {
-	appPath := "./build/bin/Gleip.app"
-	if !fileExists(appPath) {
-		return
-	}
-
-	// Code signing logic
-	if commandExists("codesign") {
-		if os.Getenv("GLEIP_CI_BUILD") != "" && os.Getenv("ENABLE_CODE_SIGNING") != "true" {
-			fmt.Println("Skipping code signing in CI environment...")
-		} else if os.Getenv("ENABLE_CODE_SIGNING") == "true" {
-			// Release builds with proper certificates
-			fmt.Println("Signing application for release...")
-			runCmd("codesign", "--force", "--deep", "--sign", "Gleip.io", appPath)
-
-			// Verify the signature
-			fmt.Println("Verifying code signature...")
-			runCmd("codesign", "--verify", "--verbose", appPath)
-		} else {
-			// Local development builds
-			fmt.Println("Signing application with development certificate...")
-			runCmd("codesign", "--force", "--deep", "--sign", "Gleip.io", appPath)
-		}
-	}
-
-	// Create DMG with standard naming
-	arch := runtime.GOARCH
-	dmgName := fmt.Sprintf("gleip-%s-macos-%s.dmg", version, arch)
-	dmgPath := filepath.Join("./build/bin", dmgName)
-	tempDir := "./build/dmg_temp"
-
-	os.MkdirAll(tempDir, 0755)
-	runCmd("cp", "-R", appPath, tempDir+"/")
-
-	if commandExists("create-dmg") {
-		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, tempDir)
-	} else if commandExists("hdiutil") {
-		// Create Applications symlink for hdiutil
-		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
-		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
-	}
-
-	os.RemoveAll(tempDir)
-	fmt.Printf("✅ Distribution DMG created: %s\n", dmgPath)
-}
-
-func packageMacOSCrossCompiled(outputDir, version, arch string) {
-	appPath := filepath.Join(outputDir, "Gleip.app")
-	if !fileExists(appPath) {
-		return
-	}
-
-	fmt.Printf("Packaging macOS %s build...\n", arch)
-
-	// Create DMG for cross-compiled build
-	dmgName := fmt.Sprintf("gleip-%s-macos-%s.dmg", version, arch)
-	dmgPath := filepath.Join(outputDir, dmgName)
-	tempDir := filepath.Join(outputDir, "dmg_temp")
-
-	os.MkdirAll(tempDir, 0755)
-	runCmd("cp", "-R", appPath, tempDir+"/")
-
-	if commandExists("hdiutil") {
-		// Create Applications symlink for hdiutil
-		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
-		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
-		os.RemoveAll(tempDir)
-		fmt.Printf("✅ Cross-compiled DMG created: %s\n", dmgPath)
-	}
-}
-
-func packageWindows(version string) {
-	exePath := "./build/bin/Gleip.exe"
-	if fileExists(exePath) {
-		fmt.Printf("✅ Executable created: %s\n", exePath)
-	}
-}
-
-func packageLinux(version string) {
-	binPath := "./build/bin/Gleip"
-	if fileExists(binPath) {
-		fmt.Printf("✅ Executable created: %s\n", binPath)
-	}
-}
-
-// Utility functions
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
-}
-
-func filesExist(paths ...string) bool {
-	for _, path := range paths {
-		if !fileExists(path) {
-			return false
-		}
-	}
-	return true
-}
-
-func commandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
-}
-
-func runCmd(name string, args ...string) {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Command failed: %s %v\n", name, args)
-		os.Exit(1)
-	}
-}
-
-func runCmdSilent(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	return cmd.Run()
-}
-
-func runCmdInDir(dir, name string, args ...string) {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Command failed in %s: %s %v\n", dir, name, args)
-		os.Exit(1)
-	}
-}
-
-func runCmdInDirSilent(dir, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	return cmd.Run()
-}
-
-func runCmdOutput(name string, args ...string) string {
-	cmd := exec.Command(name, args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return string(output)
-}
-
-func readFileToBase64(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Printf("Failed to read file %s: %v\n", path, err)
-		os.Exit(1)
-	}
-	return base64.StdEncoding.EncodeToString(data)
-}
-
 func signCIDmg(dmgPath string) {
 	fmt.Println("=== Signing DMG with Local Certificate ===")
 	fmt.Printf("Processing DMG: %s\n", dmgPath)
@@ -1243,7 +826,7 @@ func publishRelease() {
 	fmt.Printf("📝 Release notes loaded from %s\n", releaseNotesPath)
 
 	// Create temp directory for download
-	downloadDir := "./build/release_temp"
+	downloadDir := "./release_temp"
 	os.RemoveAll(downloadDir)
 	os.MkdirAll(downloadDir, 0755)
 	defer os.RemoveAll(downloadDir)
@@ -1282,21 +865,42 @@ func publishRelease() {
 		os.Exit(1)
 	}
 
-	// Find and sign DMG files
-	fmt.Println("🔏 Processing macOS DMG files...")
+	// Find .tar.gz files and extract .app files to create signed DMGs
+	fmt.Println("🔏 Processing macOS .app files...")
 	err = filepath.Walk(downloadDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if strings.HasSuffix(info.Name(), ".dmg") && strings.Contains(info.Name(), "darwin") {
-			fmt.Printf("📱 Signing DMG: %s\n", info.Name())
-			signDMGInPlace(path)
+		if strings.HasSuffix(info.Name(), ".tar.gz") && strings.Contains(info.Name(), "macos") {
+			fmt.Printf("📱 Extracting and creating signed DMG from: %s\n", info.Name())
+
+			// Extract the tar.gz file
+			extractDir := filepath.Join(filepath.Dir(path), "extract_temp")
+			os.MkdirAll(extractDir, 0755)
+
+			// Extract tar.gz
+			runCmdInDir(extractDir, "tar", "-xzf", path)
+
+			// Find the .app in the extracted directory and process it
+			filepath.Walk(extractDir, func(appPath string, appInfo os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if strings.HasSuffix(appInfo.Name(), ".app") && appInfo.IsDir() {
+					signApp(appPath)
+					createDMG(appPath, version)
+				}
+				return nil
+			})
+
+			// Clean up after processing this tar.gz
+			os.RemoveAll(extractDir)
 		}
 		return nil
 	})
 	if err != nil {
-		fmt.Printf("❌ Error processing DMG files: %v\n", err)
+		fmt.Printf("❌ Error processing .app files: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -1386,71 +990,61 @@ func publishRelease() {
 	fmt.Printf("🌐 View at: https://github.com/gleipio/gleip/releases/tag/v%s\n", version)
 }
 
-func signDMGInPlace(dmgPath string) {
-	// Create temporary working directory for this DMG
-	tempDir := filepath.Join(filepath.Dir(dmgPath), "sign_temp_"+filepath.Base(dmgPath))
-	mountPoint := filepath.Join(tempDir, "mount")
-	extractDir := filepath.Join(tempDir, "extract")
+// Utility functions
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
 
-	os.RemoveAll(tempDir)
-	os.MkdirAll(mountPoint, 0755)
-	os.MkdirAll(extractDir, 0755)
-
-	defer os.RemoveAll(tempDir)
-
-	// Mount the DMG
-	cmd := exec.Command("hdiutil", "attach", dmgPath, "-mountpoint", mountPoint, "-nobrowse", "-quiet")
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("❌ Failed to mount DMG: %v\n", err)
-		return
-	}
-
-	// Ensure we unmount on exit
-	defer func() {
-		exec.Command("hdiutil", "detach", mountPoint, "-quiet").Run()
-	}()
-
-	// Find the .app bundle
-	appPath := ""
-	entries, err := os.ReadDir(mountPoint)
-	if err != nil {
-		fmt.Printf("❌ Failed to read mounted DMG contents: %v\n", err)
-		return
-	}
-
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".app") {
-			appPath = filepath.Join(mountPoint, entry.Name())
-			break
+func filesExist(paths ...string) bool {
+	for _, path := range paths {
+		if !fileExists(path) {
+			return false
 		}
 	}
+	return true
+}
 
-	if appPath == "" {
-		fmt.Printf("❌ No .app bundle found in DMG: %s\n", filepath.Base(dmgPath))
-		return
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
+}
+
+func runCmd(name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Command failed: %s %v\n", name, args)
+		os.Exit(1)
 	}
+}
 
-	// Copy .app to extract directory
-	extractedAppPath := filepath.Join(extractDir, filepath.Base(appPath))
-	runCmdSilent("cp", "-R", appPath, extractDir)
-
-	// Unmount before signing
-	runCmdSilent("hdiutil", "detach", mountPoint, "-quiet")
-
-	// Sign the extracted .app
-	if err := runCmdSilent("codesign", "--force", "--deep", "--sign", "Gleip.io", extractedAppPath); err != nil {
-		fmt.Printf("❌ Failed to sign app in DMG: %s\n", filepath.Base(dmgPath))
-		return
+func runCmdInDir(dir, name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Command failed in %s: %s %v\n", dir, name, args)
+		os.Exit(1)
 	}
+}
 
-	// Replace original DMG with signed version
-	if commandExists("create-dmg") {
-		runCmdSilent("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, extractDir)
-	} else {
-		// Create Applications symlink for hdiutil
-		runCmdSilent("ln", "-s", "/Applications", extractDir+"/Applications")
-		runCmdSilent("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", extractDir, "-ov", "-format", "UDZO", dmgPath)
+func runCmdOutput(name string, args ...string) string {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
 	}
+	return string(output)
+}
 
-	fmt.Printf("✅ DMG signed: %s\n", filepath.Base(dmgPath))
+func readFileToBase64(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Printf("Failed to read file %s: %v\n", path, err)
+		os.Exit(1)
+	}
+	return base64.StdEncoding.EncodeToString(data)
 }

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"Gleip/backend/paths"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,7 +22,6 @@ import (
 const (
 	githubRepoOwner = "gleipio"
 	githubRepoName  = "gleip"
-	githubAPIURL    = "https://api.github.com/repos/%s/%s/releases/latest"
 )
 
 // GitHubRelease represents the response from GitHub API
@@ -50,7 +50,7 @@ type UpdateInfo struct {
 // CheckForUpdates checks if a newer version is available on GitHub
 func (a *App) CheckForUpdates() (*UpdateInfo, error) {
 	// Use the GitHub API to get the latest release
-	apiURL := fmt.Sprintf(githubAPIURL, githubRepoOwner, githubRepoName)
+	apiURL := fmt.Sprintf(paths.GlobalURLs.Services.GitHubAPI, githubRepoOwner, githubRepoName)
 
 	// Create a client with a timeout
 	client := &http.Client{

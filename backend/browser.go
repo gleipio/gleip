@@ -128,7 +128,7 @@ func (a *App) downloadFirefoxInternal() error {
 	case "darwin":
 		installerFilename = "firefox.dmg"
 	case "linux":
-		installerFilename = "firefox-linux.tar.xz"  // Updated to XZ format
+		installerFilename = "firefox-linux.tar.xz" // Updated to XZ format
 	case "windows":
 		installerFilename = "firefox-installer.exe"
 	default:
@@ -159,17 +159,10 @@ func (a *App) downloadFirefoxInternal() error {
 		currentDownloadProgress.Status = "Determining download URL..."
 		currentDownloadProgress.Progress = 0.05
 
-		// Get download URL based on platform
-		var downloadURL string
-		switch stdruntime.GOOS {
-		case "darwin":
-			downloadURL = "https://download.mozilla.org/?product=firefox-latest&os=osx&lang=en-US"
-		case "linux":
-			downloadURL = "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US"
-		case "windows":
-			downloadURL = "https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US"
-		default:
-			return fmt.Errorf("unsupported platform: %s", stdruntime.GOOS)
+		// Get download URL from centralized paths configuration
+		downloadURL, err := paths.GetFirefoxDownloadURL()
+		if err != nil {
+			return err
 		}
 
 		// Create HTTP client with redirect following
@@ -310,7 +303,7 @@ func (a *App) downloadFirefoxInternal() error {
 	case "linux":
 		// Create extraction directory - use consistent path structure
 		currentDownloadProgress.Status = "Extracting Firefox..."
-		
+
 		// Use the same base directory structure as the browser directory
 		var tempExtractDir string
 		switch stdruntime.GOOS {
@@ -319,7 +312,7 @@ func (a *App) downloadFirefoxInternal() error {
 		default:
 			tempExtractDir = filepath.Join(homeDir, ".gleip", "temp-extract")
 		}
-		
+
 		if err := os.MkdirAll(tempExtractDir, 0755); err != nil {
 			return fmt.Errorf("failed to create extraction directory: %v", err)
 		}
@@ -331,7 +324,7 @@ func (a *App) downloadFirefoxInternal() error {
 
 		// Extract tar.xz with proper compression detection
 		fmt.Printf("INFO: Extracting Firefox from %s to %s\n", downloadPath, tempExtractDir)
-		
+
 		// Verify the download file exists and has content
 		if fileInfo, err := os.Stat(downloadPath); err != nil {
 			return fmt.Errorf("download file not found: %v", err)
@@ -341,7 +334,7 @@ func (a *App) downloadFirefoxInternal() error {
 				return fmt.Errorf("download file is empty")
 			}
 		}
-		
+
 		// Detect file type for proper extraction
 		cmd := exec.Command("file", downloadPath)
 		output, err := cmd.CombinedOutput()
@@ -350,7 +343,7 @@ func (a *App) downloadFirefoxInternal() error {
 		} else {
 			fmt.Printf("INFO: Detected file type: %s\n", string(output))
 		}
-		
+
 		// Use XZ decompression for the expected .tar.xz format
 		var extractCmd *exec.Cmd
 		if strings.Contains(string(output), "xz compressed") || strings.HasSuffix(downloadPath, ".tar.xz") {
@@ -367,7 +360,7 @@ func (a *App) downloadFirefoxInternal() error {
 			fmt.Printf("INFO: Using default XZ decompression\n")
 			extractCmd = exec.Command("tar", "-xJf", downloadPath, "-C", tempExtractDir)
 		}
-		
+
 		output, err = extractCmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("failed to extract Firefox: %v. Output: %s", err, string(output))
@@ -617,11 +610,11 @@ func copyDirectory(src, dst string) error {
 			} else {
 				fmt.Printf("unknown size)\n")
 			}
-			
+
 			if err := copyFile(srcPath, dstPath); err != nil {
 				return fmt.Errorf("failed to copy file %s to %s: %v", srcPath, dstPath, err)
 			}
-			
+
 			// Preserve execute permissions for binary files
 			if info, err := os.Stat(srcPath); err == nil {
 				if err := os.Chmod(dstPath, info.Mode()); err != nil {

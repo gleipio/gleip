@@ -117,34 +117,6 @@ func (pp *ProjectPersistence) updateProjectFromCurrentStateData(projectData *Pro
 	projectData.GleipFlows = gleipFlows
 	pp.app.gleipFlowsMutex.RUnlock()
 
-	// NOTE: We do NOT overwrite UI state fields like SelectedGleipFlowID, SelectedAPICollection, etc.
-	// These are managed separately and should be preserved during auto-save
-
-	// Capture scan data
-	pp.app.scanTargetsMutex.RLock()
-	targets := make([]*ScanTarget, 0, len(pp.app.scanTargetsCache))
-	for _, target := range pp.app.scanTargetsCache {
-		targets = append(targets, target)
-	}
-	projectData.ScanTargets = targets
-	pp.app.scanTargetsMutex.RUnlock()
-
-	pp.app.scanConfigsMutex.RLock()
-	configs := make([]*ScanConfig, 0, len(pp.app.scanConfigsCache))
-	for _, config := range pp.app.scanConfigsCache {
-		configs = append(configs, config)
-	}
-	projectData.ScanConfigs = configs
-	pp.app.scanConfigsMutex.RUnlock()
-
-	pp.app.scanResultsMutex.RLock()
-	results := make([]*ScanResult, 0, len(pp.app.scanResultsCache))
-	for _, result := range pp.app.scanResultsCache {
-		results = append(results, result)
-	}
-	projectData.ScanResults = results
-	pp.app.scanResultsMutex.RUnlock()
-
 	return nil
 }
 
@@ -177,6 +149,7 @@ func (pp *ProjectPersistence) updateProjectFromCurrentStateDataIncremental(proje
 			gleipFlows := make([]*GleipFlow, 0, len(pp.app.gleipFlowsCache))
 			for _, gleipFlow := range pp.app.gleipFlowsCache {
 				gleipFlows = append(gleipFlows, gleipFlow)
+				fmt.Printf("DEBUG: Saving flow %s with %d execution results\n", gleipFlow.ID, len(gleipFlow.ExecutionResults))
 			}
 			projectData.GleipFlows = gleipFlows
 			pp.app.gleipFlowsMutex.RUnlock()
@@ -184,34 +157,6 @@ func (pp *ProjectPersistence) updateProjectFromCurrentStateDataIncremental(proje
 		case "api_collections":
 			// API collections are already stored in the project, no need to copy from cache
 			// This is handled differently since they're stored directly in the project
-
-		case "scan_targets":
-			// Capture scan data
-			pp.app.scanTargetsMutex.RLock()
-			targets := make([]*ScanTarget, 0, len(pp.app.scanTargetsCache))
-			for _, target := range pp.app.scanTargetsCache {
-				targets = append(targets, target)
-			}
-			projectData.ScanTargets = targets
-			pp.app.scanTargetsMutex.RUnlock()
-
-		case "scan_configs":
-			pp.app.scanConfigsMutex.RLock()
-			configs := make([]*ScanConfig, 0, len(pp.app.scanConfigsCache))
-			for _, config := range pp.app.scanConfigsCache {
-				configs = append(configs, config)
-			}
-			projectData.ScanConfigs = configs
-			pp.app.scanConfigsMutex.RUnlock()
-
-		case "scan_results":
-			pp.app.scanResultsMutex.RLock()
-			results := make([]*ScanResult, 0, len(pp.app.scanResultsCache))
-			for _, result := range pp.app.scanResultsCache {
-				results = append(results, result)
-			}
-			projectData.ScanResults = results
-			pp.app.scanResultsMutex.RUnlock()
 
 		case "project_meta":
 			// Project metadata like name, settings are already in the project struct
@@ -258,6 +203,7 @@ func (pp *ProjectPersistence) saveToTempProjectIncremental() error {
 	}
 
 	dirtyComponents := pp.app.getDirtyComponents()
+	fmt.Printf("DEBUG: Incremental save - dirty components: %v\n", dirtyComponents)
 
 	// Update only dirty components
 	if err := pp.updateProjectFromCurrentStateDataIncremental(pp.app.currentProject, dirtyComponents); err != nil {
@@ -267,14 +213,24 @@ func (pp *ProjectPersistence) saveToTempProjectIncremental() error {
 	// Create a project copy to save
 	projectToSave := *pp.app.currentProject
 
-	// Save to temp file
-	err := pp.saveProjectToPath(&projectToSave, pp.app.tempProjectPath)
+	// Determine the correct save path - use the project's actual file path if it exists
+	savePath := pp.app.tempProjectPath
+	if pp.app.currentProject.FilePathOnDisk != "" {
+		savePath = pp.app.currentProject.FilePathOnDisk
+	}
+
+	fmt.Printf("DEBUG: Saving incremental changes to: %s\n", savePath)
+
+	// Save to the correct location
+	err := pp.saveProjectToPath(&projectToSave, savePath)
 	if err != nil {
-		return fmt.Errorf("failed to save to temporary project: %v", err)
+		return fmt.Errorf("failed to save project: %v", err)
 	}
 
 	// Clear dirty flags after successful save
 	pp.app.clearDirtyFlags()
+
+	fmt.Printf("DEBUG: Incremental save completed successfully\n")
 
 	return nil
 }
@@ -314,30 +270,6 @@ func (pp *ProjectPersistence) hasProjectMeaningfulData() bool {
 
 	// Check current API collections in project
 	if len(pp.app.currentProject.APICollections) > 0 {
-		return true
-	}
-
-	// Check current scan targets cache
-	pp.app.scanTargetsMutex.RLock()
-	hasScanTargets := len(pp.app.scanTargetsCache) > 0
-	pp.app.scanTargetsMutex.RUnlock()
-	if hasScanTargets {
-		return true
-	}
-
-	// Check current scan configs cache
-	pp.app.scanConfigsMutex.RLock()
-	hasScanConfigs := len(pp.app.scanConfigsCache) > 0
-	pp.app.scanConfigsMutex.RUnlock()
-	if hasScanConfigs {
-		return true
-	}
-
-	// Check current scan results cache
-	pp.app.scanResultsMutex.RLock()
-	hasScanResults := len(pp.app.scanResultsCache) > 0
-	pp.app.scanResultsMutex.RUnlock()
-	if hasScanResults {
 		return true
 	}
 
@@ -533,7 +465,7 @@ func (pp *ProjectPersistence) promptSaveProjectAs() error {
 	// Update window title
 	pp.app.updateWindowTitle()
 
-	fmt.Printf("Project saved to: %s (auto-save now targets this file)\n", chosenPath)
+	fmt.Printf("Project saved to: %s \n", chosenPath)
 	return nil
 }
 
@@ -566,14 +498,13 @@ func (pp *ProjectPersistence) CreateNewProject() error {
 	// Create the new project
 	pp.app.projectMutex.Lock()
 	pp.app.currentProject = &Project{
-		ID:              uuid.New().String(),
-		Name:            defaultProjectName,
-		CreatedAt:       time.Now().Format(time.RFC3339),
-		UpdatedAt:       time.Now().Format(time.RFC3339),
-		Variables:       make(map[string]string),
-		ExecutionStates: make(map[string][]ExecutionResult),
-		ProxyPort:       9090,
-		GleipFlows:      []*GleipFlow{},
+		ID:         uuid.New().String(),
+		Name:       defaultProjectName,
+		CreatedAt:  time.Now().Format(time.RFC3339),
+		UpdatedAt:  time.Now().Format(time.RFC3339),
+		Variables:  make(map[string]string),
+		ProxyPort:  9090,
+		GleipFlows: []*GleipFlow{},
 	}
 
 	// Create a default GleipFlow
@@ -747,7 +678,7 @@ func (pp *ProjectPersistence) LoadProject() error {
 	// Update window title
 	pp.app.updateWindowTitle()
 
-	fmt.Printf("Loaded project from: %s (auto-save now targets this file)\n", project.FilePathOnDisk)
+	fmt.Printf("Loaded project from: %s \n", project.FilePathOnDisk)
 	return nil
 }
 

@@ -21,12 +21,6 @@ build: check-build-tool
 	@echo "Building Gleip for current platform..."
 	go run $(BUILD_TOOL) build
 
-# Build for all platforms
-.PHONY: build-all
-build-all: check-build-tool
-	@echo "Building Gleip for all platforms..."
-	go run $(BUILD_TOOL) build-all
-
 # Development mode
 .PHONY: dev
 dev: check-build-tool
@@ -57,11 +51,11 @@ clean: check-build-tool
 	@echo "Cleaning build artifacts..."
 	go run $(BUILD_TOOL) clean
 
-# Show build targets
-.PHONY: targets
-targets: check-build-tool
-	@echo "Showing supported build targets..."
-	go run $(BUILD_TOOL) targets
+# Package .app as DMG (macOS only)
+.PHONY: package-dmg
+package-dmg: check-build-tool
+	@echo "Packaging .app as signed DMG..."
+	go run $(BUILD_TOOL) package-dmg
 
 # Publish release (download CI artifacts, sign DMGs, and publish)
 .PHONY: publish
@@ -88,14 +82,12 @@ help: check-build-tool
 	@echo ""
 	@echo "Available targets:"
 	@echo "  build        - Build for current platform (default)"
-	@echo "  build-all    - Build for all supported platforms"
-	@echo "  build-target - Build for specific platform (requires TARGET=platform/arch)"
 	@echo "  dev          - Run in development mode"
 	@echo "  certs        - Generate certificate files"
 	@echo "  save-certs   - Generate and save certificate databases for CI"
 	@echo "  deps         - Install platform dependencies"
 	@echo "  clean        - Remove build artifacts"
-	@echo "  targets      - Show supported build targets"
+	@echo "  package-dmg  - Package .app as signed DMG (macOS only)"
 	@echo "  publish      - Download CI artifacts, sign DMGs, and publish release"
 	@echo "  sign-dmg     - Sign a CI-built DMG (requires DMG_PATH=path/to/file.dmg)"
 	@echo "  help         - Show this help message"
@@ -104,19 +96,6 @@ help: check-build-tool
 	@echo "  go run $(BUILD_TOOL) [command] [args...]"
 	@echo ""
 	@go run $(BUILD_TOOL) help
-
-# Support for specific build targets (e.g., make build-target TARGET=windows/amd64)
-.PHONY: build-target
-build-target: check-build-tool
-ifdef TARGET
-	@echo "Building Gleip for $(TARGET)..."
-	go run $(BUILD_TOOL) build $(TARGET)
-else
-	@echo "Error: TARGET variable must be specified"
-	@echo "Usage: make build-target TARGET=platform/arch"
-	@echo "Example: make build-target TARGET=windows/amd64"
-	@exit 1
-endif
 
 # Backward compatibility: allow direct passthrough of arguments
 # This ensures GitHub Actions can still call specific commands

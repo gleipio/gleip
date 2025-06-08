@@ -481,7 +481,7 @@
   }
 
   // Handle delete step event from UI
-  function handleDeleteStep(event: CustomEvent) {
+  async function handleDeleteStep(event: CustomEvent) {
     const { stepIndex } = event.detail;
     
     // Can't delete the variables step
@@ -489,7 +489,7 @@
     
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
-    deleteStep(actualIndex);
+    await deleteStep(actualIndex);
   }
 
   // Handle starting the fuzzing process

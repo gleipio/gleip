@@ -8,6 +8,7 @@
   export let executionResult: ExecutionResult | undefined = undefined;
   export let isExecuting: boolean = false;
   export let stepIndex: number;
+  export let isExpanded: boolean = false;
   
   // Get chefStep directly from store
   $: chefStep = $activeGleipFlow?.steps[stepIndex]?.chefStep;
@@ -256,174 +257,203 @@
 <!-- showComponent: {showComponent}, chefStep: {JSON.stringify(chefStep)} -->
 
 <div class="flex flex-col h-full p-4 space-y-4">
-  <!-- Step Name -->
-  <!-- <div class="flex items-center space-x-2">
-    <label class="text-sm font-medium text-gray-100 w-20">Name:</label>
-    <input
-      type="text"
-      class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
-      bind:value={chefStep.name}
-      on:input={(e) => updateName(e.currentTarget.value)}
-      placeholder="Chef Step Name"
-    />
-  </div> -->
-
-  <!-- Input/Output Variables -->
-  <div class="flex items-center space-x-2">
-    <!-- Input Variable Selection -->
-    <select
-      class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
-      value={chefStep?.inputVariable || ''}
-      on:change={(e) => updateInputVariable(e.currentTarget.value)}
-    >
-      <option value="">Select input variable...</option>
-      {#each safeAvailableVariables as variable}
-        <option value={variable}>{variable}</option>
-      {/each}
-    </select>
-    
-    <!-- Arrow -->
-    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
-    </svg>
-    
-    <!-- Output Variable -->
-    <input
-      type="text"
-      class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
-      value={chefStep?.outputVariable || ''}
-      on:input={(e) => updateOutputVariable(e.currentTarget.value)}
-      placeholder="Output variable name"
-    />
-  </div>
-
-  <!-- Actions List -->
-  <div class="flex-1 flex flex-col space-y-2 min-h-0">
-    <div class="flex-1 overflow-y-auto space-y-2 min-h-0 pr-4">
-      {#each safeActions as action, index}
-        
-        <div class="border border-gray-600 rounded p-3 bg-gray-800/50">
-          <div class="flex items-center justify-between mb-2">
-            <!-- Custom Searchable Dropdown -->
-            <div class="flex-1 relative" data-dropdown-index={index}>
-              {#each [index] as idx}
-                  {@const _ = initDropdownState(idx)}
-                
-                <div class="flex">
-                  <input
-                    type="text"
-                    class="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded-l text-gray-100 text-sm focus:outline-none focus:border-blue-400"
-                    placeholder="Search actions..."
-                    bind:value={searchableDropdowns[idx].searchTerm}
-                    on:input={(e) => handleSearchInput(idx, e.currentTarget.value)}
-                    on:focus={() => {
-                      searchableDropdowns[idx].isOpen = true;
-                      filterActions(idx, searchableDropdowns[idx].searchTerm);
-                      searchableDropdowns = { ...searchableDropdowns };
-                    }}
-                  />
-                  <button
-                    type="button"
-                    class="px-2 py-1 bg-gray-700 border border-l-0 border-gray-600 rounded-r text-gray-100 text-sm hover:bg-gray-600 focus:outline-none focus:border-blue-400"
-                    on:click={() => toggleDropdown(idx)}
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                    </svg>
-                  </button>
-                </div>
-                
-                <!-- Dropdown List -->
-                {#if searchableDropdowns[idx].isOpen}
-                  <div class="absolute z-10 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto">
-                    {#if searchableDropdowns[idx].filteredActions.length === 0}
-                      <div class="px-3 py-2 text-gray-400 text-sm">No actions found</div>
-                    {:else}
-                      {#each searchableDropdowns[idx].filteredActions as availableAction}
-                        <button
-                          type="button"
-                          class="w-full px-3 py-2 text-left text-gray-100 text-sm hover:bg-gray-600 focus:outline-none focus:bg-gray-600"
-                          on:click={() => selectAction(idx, availableAction.id, availableAction.name)}
-                        >
-                          <div class="font-medium">{availableAction.name}</div>
-                          {#if availableAction.description}
-                            <div class="text-xs text-gray-400 mt-1">{availableAction.description}</div>
-                          {/if}
-                        </button>
-                      {/each}
-                    {/if}
-                  </div>
-                {/if}
-              {/each}
-            </div>
-            <button
-              class="ml-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
-              on:click={() => removeAction(index)}
-            >
-              Remove
-            </button>
-          </div>
-          
-          {#if action.preview}
-            <div class="mt-2">
-              <label class="text-xs text-gray-400">
-                {index === 0 ? 'Preview (from input):' : `Preview (from action ${index}):`}
-              </label>
-              <div class="mt-1 p-2 bg-gray-900 rounded text-xs text-gray-300 font-mono max-h-20 overflow-y-auto">
-                {action.preview}
-              </div>
-            </div>
+  {#if !isExpanded}
+    <!-- Collapsed view -->
+    <div class="flex flex-col space-y-2">
+      <div class="text-sm font-medium text-gray-100">Chef</div>
+      <div class="text-xs text-gray-50">
+        Input: <span class="text-blue-300">{chefStep?.inputVariable || 'Not set'}</span>
+      </div>
+      <div class="text-xs text-gray-50">
+        Actions: {chefStep?.actions?.length || 0}
+      </div>
+      <div class="text-xs text-gray-50">
+        Output: <span class="text-green-300">{chefStep?.outputVariable || 'Not set'}</span>
+      </div>
+      
+      <!-- Chef result -->
+      {#if executionResult}
+        <div class="flex items-center space-x-2">
+          <span class={`px-2 py-0.5 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
+            {executionResult.success ? 'Success' : 'Failed'}
+          </span>
+          {#if executionResult.executionTime !== undefined}
+            <span class="text-xs text-gray-50">{executionResult.executionTime}ms</span>
           {/if}
         </div>
-      {/each}
+      {:else}
+        <div class="text-xs text-gray-500">Not executed</div>
+      {/if}
+    </div>
+  {:else}
+    <!-- Expanded view -->
+    <!-- Step Name -->
+    <!-- <div class="flex items-center space-x-2">
+      <label class="text-sm font-medium text-gray-100 w-20">Name:</label>
+      <input
+        type="text"
+        class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
+        bind:value={chefStep.name}
+        on:input={(e) => updateName(e.currentTarget.value)}
+        placeholder="Chef Step Name"
+      />
+    </div> -->
+
+    <!-- Input/Output Variables -->
+    <div class="flex items-center space-x-2">
+      <!-- Input Variable Selection -->
+      <select
+        class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
+        value={chefStep?.inputVariable || ''}
+        on:change={(e) => updateInputVariable(e.currentTarget.value)}
+      >
+        <option value="">Select input variable...</option>
+        {#each safeAvailableVariables as variable}
+          <option value={variable}>{variable}</option>
+        {/each}
+      </select>
       
-      <!-- Add Action Button at bottom -->
-      <div class="flex justify-center pt-2">
-        <button
-          class="w-full border border-gray-600 rounded p-3 bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 flex items-center justify-center space-x-2 text-gray-300 hover:text-gray-100"
-          on:click={addAction}
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-          </svg>
-          <span class="text-sm font-medium">Add Action</span>
-        </button>
+      <!-- Arrow -->
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+      </svg>
+      
+      <!-- Output Variable -->
+      <input
+        type="text"
+        class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
+        value={chefStep?.outputVariable || ''}
+        on:input={(e) => updateOutputVariable(e.currentTarget.value)}
+        placeholder="Output variable name"
+      />
+    </div>
+
+    <!-- Actions List -->
+    <div class="flex-1 flex flex-col space-y-2 min-h-0">
+      <div class="flex-1 overflow-y-auto space-y-2 min-h-0 pr-4">
+        {#each safeActions as action, index}
+          
+          <div class="border border-gray-600 rounded p-3 bg-gray-800/50">
+            <div class="flex items-center justify-between mb-2">
+              <!-- Custom Searchable Dropdown -->
+              <div class="flex-1 relative" data-dropdown-index={index}>
+                {#each [index] as idx}
+                    {@const _ = initDropdownState(idx)}
+                  
+                  <div class="flex">
+                    <input
+                      type="text"
+                      class="flex-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded-l text-gray-100 text-sm focus:outline-none focus:border-blue-400"
+                      placeholder="Search actions..."
+                      bind:value={searchableDropdowns[idx].searchTerm}
+                      on:input={(e) => handleSearchInput(idx, e.currentTarget.value)}
+                      on:focus={() => {
+                        searchableDropdowns[idx].isOpen = true;
+                        filterActions(idx, searchableDropdowns[idx].searchTerm);
+                        searchableDropdowns = { ...searchableDropdowns };
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="px-2 py-1 bg-gray-700 border border-l-0 border-gray-600 rounded-r text-gray-100 text-sm hover:bg-gray-600 focus:outline-none focus:border-blue-400"
+                      on:click={() => toggleDropdown(idx)}
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  <!-- Dropdown List -->
+                  {#if searchableDropdowns[idx].isOpen}
+                    <div class="absolute z-10 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto">
+                      {#if searchableDropdowns[idx].filteredActions.length === 0}
+                        <div class="px-3 py-2 text-gray-400 text-sm">No actions found</div>
+                      {:else}
+                        {#each searchableDropdowns[idx].filteredActions as availableAction}
+                          <button
+                            type="button"
+                            class="w-full px-3 py-2 text-left text-gray-100 text-sm hover:bg-gray-600 focus:outline-none focus:bg-gray-600"
+                            on:click={() => selectAction(idx, availableAction.id, availableAction.name)}
+                          >
+                            <div class="font-medium">{availableAction.name}</div>
+                            {#if availableAction.description}
+                              <div class="text-xs text-gray-400 mt-1">{availableAction.description}</div>
+                            {/if}
+                          </button>
+                        {/each}
+                      {/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+              <button
+                class="ml-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm"
+                on:click={() => removeAction(index)}
+              >
+                Remove
+              </button>
+            </div>
+            
+            {#if action.preview}
+              <div class="mt-2">
+                <label class="text-xs text-gray-400">
+                  {index === 0 ? 'Preview (from input):' : `Preview (from action ${index}):`}
+                </label>
+                <div class="mt-1 p-2 bg-gray-900 rounded text-xs text-gray-300 font-mono max-h-20 overflow-y-auto">
+                  {action.preview}
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+        
+        <!-- Add Action Button at bottom -->
+        <div class="flex justify-center pt-2">
+          <button
+            class="w-full border border-gray-600 rounded p-3 bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 flex items-center justify-center space-x-2 text-gray-300 hover:text-gray-100"
+            on:click={addAction}
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+            <span class="text-sm font-medium">Add Action</span>
+          </button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Execution Result -->
-  {#if executionResult}
-    <div class="border-t border-gray-600 pt-4">
-      <div class="flex items-center space-x-2 mb-2">
-        <span class="text-sm font-medium text-gray-100">Result:</span>
-        <span class={`px-2 py-1 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-          {executionResult.success ? 'Success' : 'Failed'}
-        </span>
-        {#if executionResult.executionTime !== undefined}
-          <span class="text-xs text-gray-400">{executionResult.executionTime}ms</span>
+    <!-- Execution Result -->
+    {#if executionResult}
+      <div class="border-t border-gray-600 pt-4">
+        <div class="flex items-center space-x-2 mb-2">
+          <span class="text-sm font-medium text-gray-100">Result:</span>
+          <span class={`px-2 py-1 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
+            {executionResult.success ? 'Success' : 'Failed'}
+          </span>
+          {#if executionResult.executionTime !== undefined}
+            <span class="text-xs text-gray-400">{executionResult.executionTime}ms</span>
+          {/if}
+        </div>
+        
+        {#if !executionResult.success && executionResult.errorMessage}
+          <div class="text-xs text-red-400 bg-red-900/20 p-2 rounded">
+            {executionResult.errorMessage}
+          </div>
+        {/if}
+        
+        {#if executionResult.success && executionResult.variables}
+          <div class="text-xs text-gray-300">
+            <div class="font-medium mb-1">Variables set:</div>
+            {#each Object.entries(executionResult.variables) as [name, value]}
+              <div class="ml-2">
+                <span class="text-blue-300">{name}</span> = 
+                <span class="text-gray-100">{value}</span>
+              </div>
+            {/each}
+          </div>
         {/if}
       </div>
-      
-      {#if !executionResult.success && executionResult.errorMessage}
-        <div class="text-xs text-red-400 bg-red-900/20 p-2 rounded">
-          {executionResult.errorMessage}
-        </div>
-      {/if}
-      
-      {#if executionResult.success && executionResult.variables}
-        <div class="text-xs text-gray-300">
-          <div class="font-medium mb-1">Variables set:</div>
-          {#each Object.entries(executionResult.variables) as [name, value]}
-            <div class="ml-2">
-              <span class="text-blue-300">{name}</span> = 
-              <span class="text-gray-100">{value}</span>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
+    {/if}
   {/if}
-
-
 </div> 

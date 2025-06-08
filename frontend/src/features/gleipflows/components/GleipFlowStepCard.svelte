@@ -5,8 +5,6 @@
   import ScriptStep from './ScriptStep.svelte';
   import ChefStep from './ChefStep.svelte';
   import VariablesStep from './VariablesStep.svelte';
-  import { network } from '../../../../wailsjs/go/models';
-  import { GetRequestMethod, GetResponseStatusCode } from '../../../../wailsjs/go/network/HTTPHelper';
   import { GetAvailableVariablesForStep, GetAvailableVariableValuesForStep } from '../../../../wailsjs/go/backend/App';
   import '../../../types/extensions';
   
@@ -23,28 +21,9 @@
   
   const dispatch = createEventDispatcher();
   
-  // Reactive variables for request data
-  let requestMethod: string = '';
-  
-  // Load request method when step changes
-  $: if (step.stepType === 'request' && step.requestStep) {
-    loadRequestMethod();
-  }
-  
   // Load available variables when step changes and it's a chef step
   $: if (step.stepType === 'chef' && gleipFlowID && stepIndex >= 0) {
     loadAvailableVariables();
-  }
-  
-  async function loadRequestMethod() {
-    if (step.stepType === 'request' && step.requestStep) {
-      try {
-        requestMethod = await GetRequestMethod(step.requestStep.request);
-      } catch (error) {
-        console.error('Failed to get request method:', error);
-        requestMethod = 'GET'; // fallback
-      }
-    }
   }
   
   async function loadAvailableVariables() {
@@ -96,16 +75,7 @@
     }
   }
   
-  // Get method color classes
-  function getMethodColorClass(method: string): string {
-    switch (method) {
-      case 'GET': return 'bg-green-500/20 text-green-400';
-      case 'POST': return 'bg-blue-500/20 text-blue-400';
-      case 'PUT': return 'bg-amber-500/20 text-amber-400';
-      case 'DELETE': return 'bg-red-500/20 text-red-400';
-      default: return 'bg-gray-500/20 text-gray-50';
-    }
-  }
+
   
   // Toggle expand/collapse
   function toggleExpand() {
@@ -323,139 +293,46 @@
             {/if}
           </div>
         {/if}        
+        <!-- Render components in collapsed state -->
         {#if step.stepType === 'request' && step.requestStep}
-          <!-- Request step collapsed info -->
-          <div class="flex flex-col">
-            <!-- Method and URL -->
-            <div class="flex items-center text-xs text-gray-50 mb-1">
-              <span class={`px-1.5 py-0.5 rounded ${getMethodColorClass(requestMethod)}`}>
-                {requestMethod}
-              </span>
-              
-              <!-- Fuzz mode indicator if in fuzz mode -->
-              {#if step.requestStep.isFuzzMode}
-                <span class="ml-2 px-2 py-0.5 bg-[var(--color-secondary-accent)] text-black text-xs rounded">
-                  Fuzz 
-                  {#if step.requestStep.fuzzSettings?.fuzzResults && step.requestStep.fuzzSettings.fuzzResults.length > 0}
-                    ({step.requestStep.fuzzSettings.fuzzResults.length})
-                  {/if}
-                </span>
-              {/if}
-            </div>
-            {#if step.requestStep.request.host}
-              <span class="text-xs text-gray-50 mt-2">Host</span>
-              <div class="flex items-center text-xs text-gray-50 my-2">
-                <span class="ml-1 text-gray-100 max-w-[160px] max-h-16 overflow-hidden">{step.requestStep.request.host}</span>
-              </div>
-            {/if}
-
-            <!-- Execution information -->
-            {#if executionResult}
-              <div class="flex items-center gap-1 mb-1 text-xs">
-                <span class={`px-1.5 py-0.5 rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-                  {executionResult.success ? (executionResult.transaction?.response ? GetResponseStatusCode(executionResult.transaction.response) : 'Success') : 'Failed'}
-                </span>
-                {#if executionResult.executionTime !== undefined}
-                  <span class="text-gray-50">{executionResult.executionTime}ms</span>
-                {/if}
-                {#if executionResult.transaction?.response?.dump}
-                  <span class="text-gray-50">{executionResult.transaction.response.dump.length} bytes</span>
-                {/if}
-              </div>
-              {/if}
-              {#if step.requestStep.request.dump && step.requestStep.request.dump.length > 0}
-                <span class="text-xs text-gray-50 mt-2">Request</span>
-                <!-- Request preview -->
-                <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-40 overflow-hidden">
-                  {#each step.requestStep.request.dump.split('\n') as line, i}
-                    {#if i < 50}
-                      <div class="truncate max-w-[180px]" style="min-height: 1.2em;">{line || ' '}</div>
-                    {:else if i === 50}
-                      <div class="text-gray-500">...</div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-
-              <!-- Response preview for successful requests -->
-              {#if executionResult && executionResult.success && executionResult.transaction?.response?.dump && executionResult.transaction.response.dump.length > 0}
-              <span class="text-xs text-gray-50 mt-2">Response</span>
-                <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-80 overflow-hidden">
-                  {#each executionResult.transaction.response.dump.split('\n') as line, i}
-                    {#if i < 50}
-                      <div class="truncate max-w-[180px]" style="min-height: 1.2em;">{line || ' '}</div>
-                    {:else if i === 50}
-                      <div class="text-gray-500">...</div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-          </div>
+          <RequestStep 
+            requestStep={step.requestStep}
+            executionResult={executionResult}
+            isExecuting={isExecuting}
+            isExpanded={false}
+            on:update={handleRequestUpdate}
+            on:execute={executeStep}
+            on:editorMount={handleEditorMount}
+            on:modeChange={handleRequestModeChange}
+            on:startFuzzing={handleStartFuzzing}
+          />
         {:else if step.stepType === 'script' && step.scriptStep}
-          <!-- Script summary -->
-          <div class="flex flex-col space-y-2 mt-4">
-            <div class="text-sm font-medium text-gray-100">Script</div>
-            <div class="text-xs text-gray-50 overflow-hidden font-mono">
-              {step.scriptStep.content}
-            </div>
-            
-            <!-- Script result -->
-            {#if executionResult}
-              <div class="flex items-center space-x-2">
-                <span class={`px-2 py-0.5 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-                  {executionResult.success ? 'Success' : 'Failed'}
-                </span>
-                {#if executionResult.executionTime !== undefined}
-                  <span class="text-xs text-gray-50">{executionResult.executionTime}ms</span>
-                {/if}
-              </div>
-            {:else}
-              <div class="text-xs text-gray-500">Not executed</div>
-            {/if}
-          </div>
-        {:else if step.stepType === 'chef' && step.chefStep}
-          <!-- Chef summary -->
-          <div class="flex flex-col space-y-2 mt-4">
-            <div class="text-sm font-medium text-gray-100">Chef</div>
-            <div class="text-xs text-gray-50">
-              Input: <span class="text-blue-300">{step.chefStep.inputVariable || 'Not set'}</span>
-            </div>
-            <div class="text-xs text-gray-50">
-              Actions: {step.chefStep.actions.length}
-            </div>
-            <div class="text-xs text-gray-50">
-              Output: <span class="text-green-300">{step.chefStep.outputVariable || 'Not set'}</span>
-            </div>
-            
-            <!-- Chef result -->
-            {#if executionResult}
-              <div class="flex items-center space-x-2">
-                <span class={`px-2 py-0.5 text-xs rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-                  {executionResult.success ? 'Success' : 'Failed'}
-                </span>
-                {#if executionResult.executionTime !== undefined}
-                  <span class="text-xs text-gray-50">{executionResult.executionTime}ms</span>
-                {/if}
-              </div>
-            {:else}
-              <div class="text-xs text-gray-500">Not executed</div>
-            {/if}
-          </div>
+          <ScriptStep 
+            scriptStep={step.scriptStep}
+            executionResult={executionResult}
+            isExecuting={isExecuting}
+            isExpanded={false}
+            on:update={handleScriptUpdate}
+            on:execute={executeStep}
+            on:editorMount={handleEditorMount}
+          />
+        {:else if step.stepType === 'chef'}
+          <ChefStep 
+            executionResult={executionResult}
+            isExecuting={isExecuting}
+            stepIndex={stepIndex > 0 ? stepIndex - 1 : 0}
+            availableVariables={availableVariables}
+            variableValues={variableValues}
+            isExpanded={false}
+            on:update={handleChefUpdate}
+            on:execute={executeStep}
+          />
         {:else if step.stepType === 'variables' && step.variablesStep}
-          <!-- Variables summary for collapsed view -->
-          <div class="flex flex-col space-y-2">
-            <div class="text-sm font-medium text-gray-100">Variables</div>
-            {#if Object.keys(step.variablesStep).length > 0}
-              <div class="text-xs text-gray-50 overflow-hidden">
-                {Object.keys(step.variablesStep).length} variable{Object.keys(step.variablesStep).length !== 1 ? 's' : ''} defined
-              </div>
-              <div class="text-xs text-gray-500 overflow-hidden font-mono">
-                {Object.entries(step.variablesStep).map(([name, value]) => `${name}=${value}`).join(', ')}
-              </div>
-            {:else}
-              <div class="text-xs text-gray-500">No variables defined</div>
-            {/if}
-          </div>
+          <VariablesStep 
+            variables={step.variablesStep || {}}
+            isExpanded={false}
+            on:update={handleVariablesUpdate}
+          />
         {/if}
       </div>
     {/if}
@@ -469,6 +346,7 @@
           requestStep={step.requestStep}
           executionResult={executionResult}
           isExecuting={isExecuting}
+          isExpanded={isExpanded}
           on:update={handleRequestUpdate}
           on:execute={executeStep}
           on:editorMount={handleEditorMount}
@@ -480,6 +358,7 @@
           scriptStep={step.scriptStep}
           executionResult={executionResult}
           isExecuting={isExecuting}
+          isExpanded={isExpanded}
           on:update={handleScriptUpdate}
           on:execute={executeStep}
           on:editorMount={handleEditorMount}
@@ -491,12 +370,14 @@
           stepIndex={stepIndex > 0 ? stepIndex - 1 : 0}
           availableVariables={availableVariables}
           variableValues={variableValues}
+          isExpanded={isExpanded}
           on:update={handleChefUpdate}
           on:execute={executeStep}
         />
       {:else if step.stepType === 'variables' && step.variablesStep}
         <VariablesStep 
           variables={step.variablesStep || {}}
+          isExpanded={isExpanded}
           on:update={handleVariablesUpdate}
         />
       {/if}

@@ -269,7 +269,7 @@ export const addStep = async (type: 'request' | 'script' | 'chef') => {
   }
 };
 
-export const deleteStep = (index: number) => {
+export const deleteStep = async (index: number) => {
   const $activeGleipFlowIndex = get(activeGleipFlowIndex);
   const $gleipFlows = get(gleipFlows);
   const $activeStepIndex = get(activeStepIndex);
@@ -293,8 +293,8 @@ export const deleteStep = (index: number) => {
   ];
   gleipFlows.set(updatedGleipFlows);
   
-  // Save the updated gleipFlow to the backend
-  saveGleipFlow(gleipFlow);
+  // Save the updated gleipFlow to the backend using updateGleipFlow
+  await updateGleipFlow(gleipFlow);
   
   // Update activeStepIndex if needed
   if ($activeStepIndex === index) {

@@ -412,6 +412,67 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 	return results, err
 }
 
+// ExecuteSingleStep executes a single step in a gleipFlow
+// It will execute only the specified step, plus any selected non-request steps for context
+func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionResult, error) {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return nil, err
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return nil, fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	targetStep := gleipFlow.Steps[stepIndex]
+	if targetStep.StepType != "request" {
+		return nil, fmt.Errorf("can only execute request steps with ExecuteSingleStep, got: %s", targetStep.StepType)
+	}
+
+	// Create a copy of the flow with modified selections
+	flowCopy := *gleipFlow
+	flowCopy.Steps = make([]GleipFlowStep, len(gleipFlow.Steps))
+	copy(flowCopy.Steps, gleipFlow.Steps)
+
+	// Modify selections: only target request step + selected non-request steps
+	for i := range flowCopy.Steps {
+		if i == stepIndex {
+			// Always select the target request step
+			flowCopy.Steps[i].Selected = true
+		} else if flowCopy.Steps[i].StepType == "request" {
+			// Deselect all other request steps
+			flowCopy.Steps[i].Selected = false
+		}
+		// Non-request steps keep their original selection for context
+	}
+
+	// Execute with the modified selections
+	results, err := a.gleipFlowExecutor.ExecuteGleipFlow(&flowCopy)
+	if err == nil {
+		// Update execution results in the original flow (not the copy)
+		a.gleipFlowsMutex.Lock()
+		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
+			cachedFlow.ExecutionResults = results
+		}
+		a.gleipFlowsMutex.Unlock()
+
+		a.projectMutex.Lock()
+		if a.currentProject != nil {
+			for _, projectFlow := range a.currentProject.GleipFlows {
+				if projectFlow.ID == gleipFlowID {
+					projectFlow.ExecutionResults = results
+					break
+				}
+			}
+		}
+		a.projectMutex.Unlock()
+
+		a.requestAutoSaveWithComponent("gleip_flows")
+	}
+
+	return results, err
+}
+
 // GetTransactionDetails returns the full details for a specific transaction ID
 func (a *App) GetTransactionDetails(id string) (*network.HTTPTransaction, error) {
 	return a.proxyServer.GetTransactionDetails(id)

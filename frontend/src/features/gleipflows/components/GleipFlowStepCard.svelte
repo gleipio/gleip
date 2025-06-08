@@ -216,30 +216,9 @@
                 {/if}
               </span>
             {/if}
-            <!-- <span class="ml-3 text-xs text-gray-50">
-              <span class={`
-                ${step.requestStep.method === 'GET' ? 'text-green-400' : ''}
-                ${step.requestStep.method === 'POST' ? 'text-blue-400' : ''}
-                ${step.requestStep.method === 'PUT' ? 'text-amber-400' : ''}
-                ${step.requestStep.method === 'DELETE' ? 'text-red-400' : ''}
-              `}>
-                {step.requestStep.method}
-              </span>
-              <span class="ml-1 truncate max-w-[160px] inline-block">{step.requestStep.url}</span>
-            </span> -->
           {/if}
         </div>
         <div class="flex items-center">
-          <!-- Status indicator (after execution) -->
-          <!-- {#if executionResult}
-            <span class={`px-2 py-0.5 text-xs rounded mr-3 ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-              {executionResult.success ? 'Success' : 'Failed'}
-              {#if executionResult.executionTime !== undefined}
-                <span class="ml-1 text-gray-100">{executionResult.executionTime} ms</span>
-              {/if}
-            </span>
-          {/if} -->
-          
           <!-- Only show delete button if not Variables step -->
           {#if !(stepIndex === 0 && step.stepType === 'variables')}
             <button 

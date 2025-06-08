@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { ExecuteGleipFlow } from '../../../../wailsjs/go/backend/App';
+import { ExecuteGleipFlow, ExecuteSingleStep } from '../../../../wailsjs/go/backend/App';
 import { EventsOn } from '../../../../wailsjs/runtime/runtime';
 import type { ExecutionResult, StepExecutionEvent } from '../types';
 import { gleipFlows, activeGleipFlowIndex, isExecuting, saveGleipFlow } from '../store/gleipStore';
@@ -161,6 +161,9 @@ export class GleipFlowExecutionService {
    * Execute a single step from a gleip
    */
   public static async executeSingleStep(stepIndex: number): Promise<boolean> {
+    console.log("🚨 SINGLE STEP METHOD CALLED WITH INDEX:", stepIndex);
+    alert("🚨 SINGLE STEP METHOD CALLED WITH INDEX: " + stepIndex);
+    
     const currentGleipFlows = get(gleipFlows);
     const currentActiveIndex = get(activeGleipFlowIndex);
     
@@ -172,9 +175,6 @@ export class GleipFlowExecutionService {
       
       const gleip = currentGleipFlows[currentActiveIndex];
       const step = gleip.steps[stepIndex];
-      const stepId = step.stepType === 'request' ? step.requestStep?.id : 
-                    step.stepType === 'script' ? step.scriptStep?.id : 
-                    gleip.id + '-variables';
       
       // Ensure gleip has a valid ID
       if (!gleip.id || gleip.id.trim() === '') {
@@ -183,74 +183,30 @@ export class GleipFlowExecutionService {
         return false;
       }
       
-      // Only clear the results for the step being executed
-      if (stepId) {
-        const currentResults = gleip.executionResults || [];
-        const filteredResults = currentResults.filter((result: ExecutionResult) => result.stepId !== stepId);
-        const updatedFlow = { ...gleip, executionResults: filteredResults };
-        currentGleipFlows[currentActiveIndex] = updatedFlow;
-        gleipFlows.set([...currentGleipFlows]);
+      // Only allow executing request steps with Send Req button
+      if (step.stepType !== 'request') {
+        console.error("Send Req button can only execute request steps, got:", step.stepType);
+        isExecuting.set(false);
+        return false;
       }
       
-      console.log(`Preparing to execute step ${stepIndex} (${step.stepType})`);
+      console.log(`Executing single step ${stepIndex} from gleip ${gleip.id}`);
       
-      // Mark only this step as selected
-      const updatedSteps = gleip.steps.map((s: any, idx: number) => ({
-        ...s,
-        selected: idx === stepIndex
-      }));
+      // Call the backend method that handles single step execution logic
+      const results = await ExecuteSingleStep(gleip.id, stepIndex);
+      console.log("Single step execution completed, results:", results);
       
-      // Create a copy of the gleip with only this step selected
-      const updatedGleipFlow = {
-        ...gleip,
-        steps: updatedSteps
-      };
+      // Process final results if they exist
+      if (results && results.length > 0) {
+        console.log("Processing final single step execution results");
+        this.mergeExecutionResults(results);
+      }
       
-      // Update the store
-      currentGleipFlows[currentActiveIndex] = updatedGleipFlow;
-      gleipFlows.set([...currentGleipFlows]);
-      
-      // Execute the gleip
-      await this.executeGleipFlow(gleip.id);
-      
-      // Reset selections after execution
-      const resetGleipFlow = {
-        ...gleip,
-        steps: gleip.steps.map((s: any) => ({
-          ...s,
-          selected: true
-        }))
-      };
-      
-      currentGleipFlows[currentActiveIndex] = resetGleipFlow;
-      gleipFlows.set([...currentGleipFlows]);
-      
-      // Make sure isExecuting is properly reset
       isExecuting.set(false);
-      
       return true;
     } catch (error) {
       console.error('Failed to execute single step:', error);
       isExecuting.set(false);
-      
-      // Reset selections on error
-      const currentGleipFlows = get(gleipFlows);
-      const currentActiveIndex = get(activeGleipFlowIndex);
-      if (currentActiveIndex !== null && currentActiveIndex < currentGleipFlows.length) {
-        const gleip = currentGleipFlows[currentActiveIndex];
-        
-        const resetGleipFlow = {
-          ...gleip,
-          steps: gleip.steps.map((s: any) => ({
-            ...s,
-            selected: true
-          }))
-        };
-        
-        currentGleipFlows[currentActiveIndex] = resetGleipFlow;
-        gleipFlows.set([...currentGleipFlows]);
-      }
-      
       return false;
     }
   }

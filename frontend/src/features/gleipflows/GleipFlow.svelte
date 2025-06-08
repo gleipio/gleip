@@ -19,7 +19,8 @@
     deleteGleipFlow,
     updateGleipFlow,
     addStep,
-    deleteStep
+    deleteStep,
+    updateStepSelection
   } from './store/gleipStore';
   import { getRequestFromClipboard, createRequestStepFromClipboard } from './utils/clipboardUtils';
   import type { GleipFlowStep, GleipFlow } from './types';
@@ -326,7 +327,7 @@
   }
 
   // Update step selection
-  function handleUpdateSelection(event: CustomEvent) {
+  async function handleUpdateSelection(event: CustomEvent) {
     const { stepIndex, selected } = event.detail;
     
     // Skip the variables step (index 0)
@@ -335,28 +336,7 @@
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
     
-    if (actualIndex !== undefined && $activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex] && actualIndex < $gleipFlows[$activeGleipFlowIndex].steps.length) {
-      const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
-      const updatedSteps = [...currentGleipFlow.steps];
-      
-      updatedSteps[actualIndex] = {
-        ...updatedSteps[actualIndex],
-        selected
-      };
-      
-      const updatedGleipFlow = { 
-        ...currentGleipFlow, 
-        steps: updatedSteps 
-      };
-      
-      gleipFlows.set([
-        ...$gleipFlows.slice(0, $activeGleipFlowIndex),
-        updatedGleipFlow,
-        ...$gleipFlows.slice($activeGleipFlowIndex + 1)
-      ]);
-      
-      updateGleipFlow(updatedGleipFlow);
-    }
+    await updateStepSelection(actualIndex, selected);
   }
 
   // Update step data
@@ -427,6 +407,9 @@
 
   // Execute a single step
   function handleExecuteStep(event: CustomEvent) {
+    console.log("🚨 HANDLE EXECUTE STEP CALLED", event.detail);
+    alert("🚨 HANDLE EXECUTE STEP CALLED with stepIndex: " + event.detail.stepIndex);
+    
     const { stepIndex } = event.detail;
     
     // Skip execution of the variables step
@@ -434,6 +417,7 @@
     
     // Adjust index to account for the fake variables step
     const actualIndex = stepIndex - 1;
+    console.log("🚨 CALLING executeSingleStep with actualIndex:", actualIndex);
     GleipFlowExecutionService.executeSingleStep(actualIndex);
   }
 

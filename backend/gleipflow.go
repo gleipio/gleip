@@ -72,20 +72,6 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 
 	results := make([]ExecutionResult, 0, len(gleipFlow.Steps))
 
-	// Check if any steps are set to be selected
-	anyStepSelected := false
-	for _, step := range gleipFlow.Steps {
-		if step.Selected {
-			anyStepSelected = true
-			break
-		}
-	}
-
-	// If no steps are selected, don't execute anything
-	if !anyStepSelected {
-		return results, nil
-	}
-
 	// Execute each step in sequence
 	for i, step := range gleipFlow.Steps {
 		// Only execute selected steps
@@ -146,11 +132,6 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 			TrackError("flow_step", result.ErrorMessage)
 		} else if i == len(gleipFlow.Steps)-1 || !gleipFlow.Steps[i+1].Selected {
 			TrackFlowStepExecuted(gleipFlow.ID, result.StepType, true)
-		}
-
-		// Stop execution if step failed
-		if !result.Success {
-			break
 		}
 	}
 

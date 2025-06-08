@@ -62,12 +62,15 @@ export const loadGleipFlows = async () => {
         steps: gleipSteps.map(step => {
           let convertedStep: GleipFlowStep = {
             stepType: step.stepType,
-            selected: step.selected !== undefined ? step.selected : true
+            selected: step.selected
           };
           
           if (step.requestStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.requestStep.id || crypto.randomUUID();
+            const stepId = step.requestStep.id || undefined;
+            if (stepId === undefined) {
+              console.error('Request Step ID is undefined');
+            }
             
             convertedStep.requestStep = {
               id: stepId,
@@ -87,8 +90,11 @@ export const loadGleipFlows = async () => {
           
           if (step.scriptStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.scriptStep.id || crypto.randomUUID();
-            
+            const stepId = step.scriptStep.id || undefined;
+            if (stepId === undefined) {
+              console.error('Script Step ID is undefined');
+            }
+
             convertedStep.scriptStep = {
               id: stepId,
               name: step.scriptStep.name,
@@ -98,7 +104,10 @@ export const loadGleipFlows = async () => {
           
           if (step.chefStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.chefStep.id || crypto.randomUUID();
+            const stepId = step.chefStep.id || undefined;
+            if (stepId === undefined) {
+              console.error('Chef Step ID is undefined');
+            }
             
             convertedStep.chefStep = {
               id: stepId,
@@ -302,6 +311,35 @@ export const deleteStep = async (index: number) => {
   } else if ($activeStepIndex !== null && $activeStepIndex > index) {
     activeStepIndex.set($activeStepIndex - 1);
   }
+  
+  return true;
+};
+
+export const updateStepSelection = async (index: number, selected: boolean) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return;
+  if (index < 0 || index >= $gleipFlows[$activeGleipFlowIndex].steps.length) return;
+  
+  // Create a deep copy of the gleipFlow to avoid reference issues
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  
+  // Update the step selection
+  gleipFlow.steps = gleipFlow.steps.map((step, i) => 
+    i === index ? { ...step, selected } : step
+  );
+  
+  // Update the gleips store
+  const updatedGleipFlows = [
+    ...$gleipFlows.slice(0, $activeGleipFlowIndex),
+    gleipFlow,
+    ...$gleipFlows.slice($activeGleipFlowIndex + 1)
+  ];
+  gleipFlows.set(updatedGleipFlows);
+  
+  // Save the updated gleipFlow to the backend using updateGleipFlow
+  await updateGleipFlow(gleipFlow);
   
   return true;
 };

@@ -57,11 +57,11 @@ export type VariableExtract = {
 
 export type GleipFlowStep = {
   stepType: string;
+  selected: boolean; // Flag to indicate if this step should be executed
   requestStep?: RequestStep;
   scriptStep?: ScriptStep;
   chefStep?: ChefStep;
-  variablesStep?: Record<string, string>;
-  selected?: boolean; // Flag to indicate if this step should be executed
+  variablesStep?: Record<string, string>; // Needed for displaying variables as a step in the UI
 };
 
 export type GleipFlow = {

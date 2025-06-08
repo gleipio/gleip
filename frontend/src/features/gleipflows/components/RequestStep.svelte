@@ -170,7 +170,10 @@
   
   // Execute this request
   function executeRequest() {
+    console.log("🚨 SEND REQ BUTTON CLICKED - executeRequest() called");
+    alert("🚨 SEND REQ BUTTON CLICKED - executeRequest() called");
     dispatch('execute');
+    console.log("🚨 DISPATCHED 'execute' EVENT");
   }
   
   // Variable extractions
@@ -501,7 +504,7 @@
       <!-- Request section -->
       <div class="w-full">
         <div class="flex flex-col gap-2 mb-2">
-          <label for="host-input-{requestStep.id}" class="block text-sm font-medium text-gray-50">Host</label>
+          <!-- <label for="host-input-{requestStep.id}" class="block text-sm font-medium text-gray-50">Host</label> -->
           <div class="flex items-center gap-2">
             <!-- TLS Switch -->
             <div class="flex items-center">

@@ -615,11 +615,22 @@ func (a *App) CreateGleipFlow(name string) (GleipFlow, error) {
 
 // AddStepToGleipFlow adds a new step to an existing GleipFlow
 func (a *App) AddStepToGleipFlow(gleipFlowID string, stepType string) (*GleipFlowStep, error) {
+	return a.AddStepToGleipFlowAtPosition(gleipFlowID, stepType, -1)
+}
+
+// AddStepToGleipFlowAtPosition adds a new step to an existing GleipFlow at the specified position
+// If position is -1, the step is added at the end
+func (a *App) AddStepToGleipFlowAtPosition(gleipFlowID string, stepType string, position int) (*GleipFlowStep, error) {
 	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
 	if err != nil {
 		// Track error
 		TrackError("gleipflow", "get_flow_error")
 		return nil, fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Validate position
+	if position < -1 || position > len(gleipFlow.Steps) {
+		return nil, fmt.Errorf("invalid position %d for inserting step (valid range: 0-%d or -1 for end)", position, len(gleipFlow.Steps))
 	}
 
 	newStep := GleipFlowStep{
@@ -684,8 +695,14 @@ func (a *App) AddStepToGleipFlow(gleipFlowID string, stepType string) (*GleipFlo
 		return nil, fmt.Errorf("unsupported step type: %s", stepType)
 	}
 
-	// Add step to flow
-	gleipFlow.Steps = append(gleipFlow.Steps, newStep)
+	// Insert step at the specified position
+	if position == -1 || position == len(gleipFlow.Steps) {
+		// Add to the end
+		gleipFlow.Steps = append(gleipFlow.Steps, newStep)
+	} else {
+		// Insert at specific position
+		gleipFlow.Steps = append(gleipFlow.Steps[:position], append([]GleipFlowStep{newStep}, gleipFlow.Steps[position:]...)...)
+	}
 
 	// Track step addition
 	TrackFlowStepExecuted(gleipFlowID, stepType, true)

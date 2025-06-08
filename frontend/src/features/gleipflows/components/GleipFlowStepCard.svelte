@@ -75,8 +75,6 @@
     }
   }
   
-
-  
   // Toggle expand/collapse
   function toggleExpand() {
     dispatch('toggleExpand', { stepIndex });

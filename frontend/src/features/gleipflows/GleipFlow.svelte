@@ -2,9 +2,10 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { ClipboardGetText, EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
-  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow } from '../../../wailsjs/go/backend/App';
+  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition } from '../../../wailsjs/go/backend/App';
   import * as monaco from 'monaco-editor';
   import GleipStepCard from './components/GleipFlowStepCard.svelte';
+  import AddStepButton from './components/AddStepButton.svelte';
   import ContextMenu from '../../shared/components/ContextMenu.svelte';
   import { GleipFlowExecutionService } from './services/GleipFlowExecutionService';
   import { 
@@ -678,6 +679,37 @@
     
     closeContextMenu();
   }
+
+  // Insert a step at a specific position
+  async function insertStepAt(position: number, stepType: 'request' | 'chef' | 'script') {
+    if ($activeGleipFlowIndex === null || !$activeGleipFlow) return;
+    
+    const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
+    
+    try {
+      // Use the new backend function to create a step at the specified position
+      const newStep = await AddStepToGleipFlowAtPosition(currentGleipFlow.id, stepType, position);
+      console.log('Backend returned new step at position:', newStep);
+      
+      // Reload flows from backend to get the updated state
+      await loadGleipFlows();
+      
+      // Set the new step as active
+      activeStepIndex.set(position);
+      
+      // Expand the new step (account for variables step in UI)
+      const uiStepIndex = position + 1;
+      const newExpandedSet = new Set($expandedStepIndices);
+      newExpandedSet.add(uiStepIndex);
+      expandedStepIndices.set(newExpandedSet);
+      
+      return newStep;
+    } catch (error) {
+      console.error('Failed to insert step:', error);
+      showNotification(`Failed to add step: ${error}`);
+      return null;
+    }
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -769,26 +801,49 @@
     </div>
     
     <!-- Scrollable container for cards -->
-    <div class="flex-1 overflow-x-scroll overflow-y-hidden scrollbar-visible">
+    <div class="flex-1 overflow-x-scroll overflow-y-hidden scrollbar-visible relative">
       {#if $gleipFlows.length > 0 && $activeGleipFlowIndex !== null && $activeGleipFlowIndex < $gleipFlows.length}
         <div class="flex flex-row space-x-3 py-1 h-full">
           {#each getUISteps($gleipFlows[$activeGleipFlowIndex]) as step, index}
-            <GleipStepCard
-              {step}
-              stepIndex={index}
-              isExpanded={$expandedStepIndices.has(index)}
-              executionResult={getStepExecutionResult(step)}
-              isExecuting={$isExecuting}
-              gleipFlowID={$gleipFlows[$activeGleipFlowIndex].id}
-              on:toggleExpand={handleToggleExpand}
-              on:deleteStep={handleDeleteStep}
-              on:updateSelection={handleUpdateSelection}
-              on:updateStep={handleUpdateStep}
-              on:executeStep={handleExecuteStep}
-              on:editorMount={handleEditorMount}
-              on:requestModeChange={handleRequestModeChange}
-              on:startFuzzing={handleStartFuzzing}
-            />
+            <!-- Step card with relative positioning for plus button placement -->
+            <div class="flex-shrink-0 relative">
+              <!-- Add button before the first request step -->
+              {#if index === 1}
+                <AddStepButton 
+                  position="left" 
+                  stepPosition={0} 
+                  stepType="request"
+                  on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
+                />
+              {/if}
+              
+              <GleipStepCard
+                {step}
+                stepIndex={index}
+                isExpanded={$expandedStepIndices.has(index)}
+                executionResult={getStepExecutionResult(step)}
+                isExecuting={$isExecuting}
+                gleipFlowID={$gleipFlows[$activeGleipFlowIndex].id}
+                on:toggleExpand={handleToggleExpand}
+                on:deleteStep={handleDeleteStep}
+                on:updateSelection={handleUpdateSelection}
+                on:updateStep={handleUpdateStep}
+                on:executeStep={handleExecuteStep}
+                on:editorMount={handleEditorMount}
+                on:requestModeChange={handleRequestModeChange}
+                on:startFuzzing={handleStartFuzzing}
+              />
+              
+              <!-- Add button after this step -->
+              {#if index > 0}
+                <AddStepButton 
+                  position="right" 
+                  stepPosition={index} 
+                  stepType="request"
+                  on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
+                />
+              {/if}
+            </div>
           {/each}
         </div>
       {:else}

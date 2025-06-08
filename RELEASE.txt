@@ -1,7 +1,2 @@
 ✨ New Features
-Added Chef Steps. This type of step allows you to use *chef like syntax for variable manipulation.
-
-🐛 Bug Fixes
-Fixed a bug in which the "delete step" button in a gleipflow wouldn't save the state
-Fixed buggy CSS and unhandled promise in GleipFlow steps
-Fixed Send Req button to only send the single request
+Steps can now be added contextually between other steps

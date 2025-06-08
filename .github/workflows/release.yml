@@ -3,14 +3,14 @@ name: Publish Builds on Release Creation
 on:
   push:
     tags:
-      - '20*'
+      - 'v*'
   workflow_dispatch:
 
 jobs:
   release:
     name: Create Release
     runs-on: macos-latest
-    environment: MACOS  # Use MACOS environment for signing certificates
+    # environment: MACOS  # Use MACOS environment for signing certificates
     
     steps:
     - name: Checkout code

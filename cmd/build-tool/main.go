@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 )
@@ -845,31 +844,61 @@ func publishRelease() {
 	os.MkdirAll(downloadDir, 0755)
 	defer os.RemoveAll(downloadDir)
 
-	// Get latest workflow run from current repository
-	fmt.Printf("🔍 Finding latest CI build from %s...\n", currentRepo)
-	cmd = exec.Command("gh", "run", "list", "--repo", currentRepo, "--limit", "1", "--status", "completed", "--json", "databaseId")
+	// Get current commit SHA
+	fmt.Println("🔍 Getting current commit SHA...")
+	commitCmd := exec.Command("git", "rev-parse", "HEAD")
+	commitOutput, err := commitCmd.Output()
+	if err != nil {
+		fmt.Printf("❌ Failed to get current commit SHA: %v\n", err)
+		os.Exit(1)
+	}
+	commitSHA := strings.TrimSpace(string(commitOutput))
+	fmt.Printf("Current commit: %s\n", commitSHA)
+
+	// Find build workflow run for this specific commit
+	fmt.Printf("🔍 Finding build workflow for commit %s...\n", commitSHA)
+	cmd = exec.Command("gh", "run", "list",
+		"--repo", currentRepo,
+		"--workflow", "build.yml",
+		"--status", "completed",
+		"--limit", "10",
+		"--json", "databaseId,headSha")
 	output, err = cmd.Output()
 	if err != nil {
-		fmt.Printf("❌ Failed to get latest workflow run: %v\n", err)
+		fmt.Printf("❌ Failed to get workflow runs: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Parse run ID (simple JSON parsing)
+	// Parse workflow runs to find the one for current commit
+	var workflowRuns []struct {
+		DatabaseID int    `json:"databaseId"`
+		HeadSHA    string `json:"headSha"`
+	}
+	if err := json.Unmarshal(output, &workflowRuns); err != nil {
+		fmt.Printf("❌ Failed to parse workflow runs: %v\n", err)
+		os.Exit(1)
+	}
+
 	runID := ""
-	outputStr := string(output)
-	if strings.Contains(outputStr, "databaseId") {
-		re := regexp.MustCompile(`"databaseId":(\d+)`)
-		matches := re.FindStringSubmatch(outputStr)
-		if len(matches) > 1 {
-			runID = matches[1]
+	for _, run := range workflowRuns {
+		if run.HeadSHA == commitSHA {
+			runID = fmt.Sprintf("%d", run.DatabaseID)
+			break
 		}
 	}
 
 	if runID == "" {
-		fmt.Println("❌ Could not find latest workflow run ID")
+		fmt.Printf("❌ No successful build workflow found for commit %s\n", commitSHA)
+		fmt.Println("Available recent workflows:")
+		for i, run := range workflowRuns {
+			if i >= 5 {
+				break
+			}
+			fmt.Printf("  - Run %d: commit %s\n", run.DatabaseID, run.HeadSHA)
+		}
 		os.Exit(1)
 	}
-	fmt.Printf("✅ Found latest CI run: %s\n", runID)
+	fmt.Printf("✅ Found build workflow run: %s for commit: %s\n", runID, commitSHA)
 
 	// Download all artifacts
 	fmt.Println("⬇️  Downloading CI artifacts...")

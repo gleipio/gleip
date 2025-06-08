@@ -786,20 +786,34 @@ func publishRelease() {
 		os.Exit(1)
 	}
 
-	// Check if target repository exists and is accessible
-	fmt.Println("🔍 Checking access to gleipio/gleip repository...")
-	cmd := exec.Command("gh", "repo", "view", "gleipio/gleip", "--json", "name")
-	if output, err := cmd.Output(); err != nil {
-		fmt.Println("❌ Cannot access gleipio/gleip repository.")
+	// Get current repository info
+	fmt.Println("🔍 Detecting current repository...")
+	cmd := exec.Command("gh", "repo", "view", "--json", "name,owner")
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Println("❌ Cannot detect current repository.")
 		fmt.Println("Please ensure:")
-		fmt.Println("  1. The repository exists")
-		fmt.Println("  2. You have push/release permissions")
+		fmt.Println("  1. You're in a git repository")
+		fmt.Println("  2. You have access permissions")
 		fmt.Println("  3. You're authenticated with: gh auth login")
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
-	} else {
-		fmt.Printf("✅ Repository access confirmed: %s\n", strings.TrimSpace(string(output)))
 	}
+
+	// Parse repository info
+	var repoInfo struct {
+		Name  string `json:"name"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+	}
+	if err := json.Unmarshal(output, &repoInfo); err != nil {
+		fmt.Printf("❌ Failed to parse repository info: %v\n", err)
+		os.Exit(1)
+	}
+
+	currentRepo := repoInfo.Owner.Login + "/" + repoInfo.Name
+	fmt.Printf("✅ Current repository: %s\n", currentRepo)
 
 	// Get version from backend/settings.go
 	version := extractVersion()
@@ -831,10 +845,10 @@ func publishRelease() {
 	os.MkdirAll(downloadDir, 0755)
 	defer os.RemoveAll(downloadDir)
 
-	// Get latest workflow run from gleipio/gleip
-	fmt.Println("🔍 Finding latest CI build from gleipio/gleip...")
-	cmd = exec.Command("gh", "run", "list", "--repo", "gleipio/gleip", "--limit", "1", "--status", "completed", "--json", "databaseId")
-	output, err := cmd.Output()
+	// Get latest workflow run from current repository
+	fmt.Printf("🔍 Finding latest CI build from %s...\n", currentRepo)
+	cmd = exec.Command("gh", "run", "list", "--repo", currentRepo, "--limit", "1", "--status", "completed", "--json", "databaseId")
+	output, err = cmd.Output()
 	if err != nil {
 		fmt.Printf("❌ Failed to get latest workflow run: %v\n", err)
 		os.Exit(1)
@@ -859,7 +873,7 @@ func publishRelease() {
 
 	// Download all artifacts
 	fmt.Println("⬇️  Downloading CI artifacts...")
-	cmd = exec.Command("gh", "run", "download", runID, "--repo", "gleipio/gleip", "--dir", downloadDir)
+	cmd = exec.Command("gh", "run", "download", runID, "--repo", currentRepo, "--dir", downloadDir)
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("❌ Failed to download artifacts: %v\n", err)
 		os.Exit(1)
@@ -945,22 +959,22 @@ func publishRelease() {
 
 	// Check if release already exists
 	fmt.Printf("🔍 Checking if release %s already exists...\n", version)
-	cmd = exec.Command("gh", "release", "view", version, "--repo", "gleipio/gleip")
+	cmd = exec.Command("gh", "release", "view", version, "--repo", currentRepo)
 	if err := cmd.Run(); err == nil {
 		fmt.Printf("⚠️  Release %s already exists. Deleting it first...\n", version)
-		cmd = exec.Command("gh", "release", "delete", version, "--repo", "gleipio/gleip", "--yes")
+		cmd = exec.Command("gh", "release", "delete", version, "--repo", currentRepo, "--yes")
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("❌ Failed to delete existing release: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
-	// Create release on gleipio/gleip
-	fmt.Printf("🚀 Creating release %s on gleipio/gleip...\n", version)
+	// Create release on current repository
+	fmt.Printf("🚀 Creating release %s on %s...\n", version, currentRepo)
 
 	// First create the release without assets
 	cmd = exec.Command("gh", "release", "create", version,
-		"--repo", "gleipio/gleip",
+		"--repo", currentRepo,
 		"--title", "Gleip v"+version,
 		"--notes", string(releaseNotes))
 
@@ -970,9 +984,9 @@ func publishRelease() {
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("❌ Failed to create release: %v\n", err)
 		fmt.Println("\nTroubleshooting:")
-		fmt.Println("1. Ensure the repository gleipio/gleip exists")
+		fmt.Printf("1. Ensure you have release permissions for %s\n", currentRepo)
 		fmt.Println("2. Check you have release permissions: gh auth refresh")
-		fmt.Println("3. Try manually: gh release create " + version + " --repo gleipio/gleip")
+		fmt.Printf("3. Try manually: gh release create %s --repo %s\n", version, currentRepo)
 		os.Exit(1)
 	}
 
@@ -983,7 +997,7 @@ func publishRelease() {
 		fmt.Printf("  Uploading %s...\n", fileName)
 
 		cmd = exec.Command("gh", "release", "upload", version, artifactPath,
-			"--repo", "gleipio/gleip")
+			"--repo", currentRepo)
 
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("❌ Failed to upload %s: %v\n", fileName, err)
@@ -994,7 +1008,7 @@ func publishRelease() {
 	}
 
 	fmt.Printf("✅ Release v%s published successfully!\n", version)
-	fmt.Printf("🌐 View at: https://github.com/gleipio/gleip/releases/tag/v%s\n", version)
+	fmt.Printf("🌐 View at: https://github.com/%s/releases/tag/v%s\n", currentRepo, version)
 }
 
 // Utility functions

@@ -1,6 +1,8 @@
 # Gleip
 
-An intercepting proxy application for ethical hackers to find and exploit vulnerabilities in web applications.
+Gleip is an advanced intercepting proxy designed for ethical hackers, security researchers, and bug bounty hunters. It helps you analyze, manipulate, and automate HTTP traffic in order to discover and exploit vulnerabilities in web applications, especially those that depend on complex user flows.
+
+Whether you're testing login sequences, chained API calls, or multi-step transactions, Gleip gives you the tools to craft, replay, and mutate requests with precision.
 
 ## Quick Start
 

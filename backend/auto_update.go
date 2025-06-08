@@ -109,9 +109,17 @@ func (a *App) CheckForUpdates() (*UpdateInfo, error) {
 // CompareVersions compares version strings in the format YYYY.MM.DD
 // Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
 func CompareVersions(v1, v2 string) int {
+	// Handle minor release format (e.g., 2025.06.08-1)
+	v1Parts := strings.Split(v1, "-")
+	v2Parts := strings.Split(v2, "-")
+
+	// Compare base versions first
+	baseV1 := v1Parts[0]
+	baseV2 := v2Parts[0]
+
 	// Split versions into parts
-	parts1 := strings.Split(v1, ".")
-	parts2 := strings.Split(v2, ".")
+	parts1 := strings.Split(baseV1, ".")
+	parts2 := strings.Split(baseV2, ".")
 
 	// Compare each part
 	for i := 0; i < len(parts1) && i < len(parts2); i++ {
@@ -141,6 +149,35 @@ func CompareVersions(v1, v2 string) int {
 		return -1
 	} else if len(parts1) > len(parts2) {
 		return 1
+	}
+
+	// If base versions are equal, check minor release suffix
+	if len(v1Parts) == 1 && len(v2Parts) > 1 {
+		// v1 has no minor version but v2 does (e.g., 2025.06.08 vs 2025.06.08-1)
+		return -1
+	} else if len(v1Parts) > 1 && len(v2Parts) == 1 {
+		// v1 has a minor version but v2 doesn't
+		return 1
+	} else if len(v1Parts) > 1 && len(v2Parts) > 1 {
+		// Both have minor versions, compare them
+		minor1, err1 := strconv.Atoi(v1Parts[1])
+		minor2, err2 := strconv.Atoi(v2Parts[1])
+
+		if err1 != nil || err2 != nil {
+			// If we can't parse as numbers, fall back to string comparison
+			if v1Parts[1] < v2Parts[1] {
+				return -1
+			} else if v1Parts[1] > v2Parts[1] {
+				return 1
+			}
+		} else {
+			// Compare as numbers
+			if minor1 < minor2 {
+				return -1
+			} else if minor1 > minor2 {
+				return 1
+			}
+		}
 	}
 
 	// Versions are equal

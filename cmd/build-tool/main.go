@@ -879,8 +879,15 @@ func publishRelease() {
 			extractDir := filepath.Join(filepath.Dir(path), "extract_temp")
 			os.MkdirAll(extractDir, 0755)
 
+			// Get absolute path for tar.gz file
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				fmt.Printf("❌ Failed to get absolute path for %s: %v\n", path, err)
+				return err
+			}
+
 			// Extract tar.gz
-			runCmdInDir(extractDir, "tar", "-xzf", path)
+			runCmdInDir(extractDir, "tar", "-xzf", absPath)
 
 			// Find the .app in the extracted directory and process it
 			filepath.Walk(extractDir, func(appPath string, appInfo os.FileInfo, err error) error {

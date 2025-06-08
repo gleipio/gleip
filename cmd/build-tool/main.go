@@ -944,6 +944,24 @@ func publishRelease() {
 				return nil
 			})
 
+			// Move any created DMGs to downloadDir before cleanup
+			filepath.Walk(extractDir, func(dmgPath string, dmgInfo os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if strings.HasSuffix(dmgInfo.Name(), ".dmg") {
+					destPath := filepath.Join(downloadDir, dmgInfo.Name())
+					fmt.Printf("📦 Moving DMG to: %s\n", dmgInfo.Name())
+					if err := copyFile(dmgPath, destPath); err != nil {
+						fmt.Printf("⚠️  Failed to move DMG %s: %v\n", dmgInfo.Name(), err)
+					}
+				}
+				return nil
+			})
+
+			// Remove the original tar.gz since we now have a DMG
+			os.Remove(path)
+
 			// Clean up after processing this tar.gz
 			os.RemoveAll(extractDir)
 		}
@@ -963,11 +981,12 @@ func publishRelease() {
 		}
 
 		// Include executables, DMGs, and archives with standard naming
+		// Note: Exclude macOS tar.gz files since they've been converted to DMGs
 		if strings.HasSuffix(info.Name(), ".exe") ||
 			strings.HasSuffix(info.Name(), ".dmg") ||
-			strings.HasSuffix(info.Name(), ".tar.gz") ||
+			(strings.HasSuffix(info.Name(), ".tar.gz") && !strings.Contains(info.Name(), "macos")) ||
 			(info.Name() == "Gleip" && !info.IsDir()) ||
-			(strings.HasPrefix(info.Name(), "gleip-") && (strings.Contains(info.Name(), "-linux-") || strings.Contains(info.Name(), "-windows-") || strings.Contains(info.Name(), "-macos-")) && !info.IsDir()) ||
+			(strings.HasPrefix(info.Name(), "gleip-") && (strings.Contains(info.Name(), "-linux-") || strings.Contains(info.Name(), "-windows-")) && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-linux-") && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-windows-") && !info.IsDir()) ||
 			(strings.HasPrefix(info.Name(), "Gleip-darwin-") && !info.IsDir()) {
@@ -1004,7 +1023,7 @@ func publishRelease() {
 	// First create the release without assets
 	cmd = exec.Command("gh", "release", "create", version,
 		"--repo", currentRepo,
-		"--title", "Gleip v"+version,
+		"--title", "Gleip "+version,
 		"--notes", string(releaseNotes))
 
 	cmd.Stdout = os.Stdout

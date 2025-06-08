@@ -1,0 +1,1 @@
+Added Chef Steps. This type of step allows you to use *chef like syntax for variable manipulation.

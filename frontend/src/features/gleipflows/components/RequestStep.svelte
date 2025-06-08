@@ -15,10 +15,16 @@
   
   // Reactive variables for request data
   let requestMethod: string = '';
+  let responseStatusCode: number | string = '';
   
   // Load request method when step changes
   $: if (requestStep) {
     loadRequestMethod();
+  }
+  
+  // Load response status code when execution result changes
+  $: if (executionResult?.transaction?.response) {
+    loadResponseStatusCode();
   }
   
   async function loadRequestMethod() {
@@ -27,8 +33,21 @@
         requestMethod = await GetRequestMethod(requestStep.request);
       } catch (error) {
         console.error('Failed to get request method:', error);
-        requestMethod = 'GET'; // fallback
+        requestMethod = ''; // fallback
       }
+    }
+  }
+  
+  async function loadResponseStatusCode() {
+    if (executionResult?.transaction?.response) {
+      try {
+        responseStatusCode = await GetResponseStatusCode(executionResult.transaction.response);
+      } catch (error) {
+        console.error('Failed to get response status code:', error);
+        responseStatusCode = 'Unknown'; // fallback
+      }
+    } else {
+      responseStatusCode = '';
     }
   }
   
@@ -41,6 +60,15 @@
       case 'DELETE': return 'bg-red-500/20 text-red-400';
       default: return 'bg-gray-500/20 text-gray-50';
     }
+  }
+    
+  // Get method color classes
+  function getStatusCodeColorClass(statusCode: number): string {
+    if (statusCode >= 200 && statusCode < 300) return 'bg-green-500/20 text-green-400';
+    if (statusCode >= 300 && statusCode < 400) return 'bg-amber-500/20 text-amber-400';
+    if (statusCode >= 400 && statusCode < 500) return 'bg-red-500/20 text-red-400';
+    if (statusCode >= 500 && statusCode < 600) return 'bg-purple-500/20 text-purple-400';
+    return 'bg-gray-500/20 text-gray-50';
   }
   
   // Initialize isFuzzMode and isConfigExpanded if they don't exist yet
@@ -383,6 +411,9 @@
     <div class="flex flex-col">
       <!-- Method and URL -->
       <div class="flex items-center text-xs text-gray-50 mb-1">
+        <span class={`px-1.5 py-0.5 mr-2 rounded ${requestStep.request.tls ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+          {requestStep.request.tls ? 'TLS' : 'Cleartext'}
+        </span>
         <span class={`px-1.5 py-0.5 rounded ${getMethodColorClass(requestMethod)}`}>
           {requestMethod}
         </span>
@@ -399,15 +430,15 @@
       </div>
       {#if requestStep.request.host}
         <div class="flex items-center text-xs text-gray-50 my-2">
-          <span class="ml-1 text-gray-100 max-w-[160px] max-h-16 overflow-hidden break-all">Host: {requestStep.request.host}</span>
+          <span class="ml-1 text-gray-100 max-w-[160px] max-h-16 overflow-hidden break-all">{requestStep.request.host}</span>
         </div>
       {/if}
 
       <!-- Execution information -->
       {#if executionResult}
-        <div class="flex items-center gap-1 mb-1 text-xs">
-          <span class={`px-1.5 py-0.5 rounded ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
-            {executionResult.success ? (executionResult.transaction?.response ? GetResponseStatusCode(executionResult.transaction.response) : 'Success') : 'Failed'}
+        <div class="flex items-center justify-between mb-1 text-xs">
+          <span class={`px-1.5 py-0.5 rounded ${getStatusCodeColorClass(Number(responseStatusCode))}`}>
+            {executionResult.success ? (executionResult.transaction?.response ? responseStatusCode : 'Success') : 'Failed'}
           </span>
           {#if executionResult.executionTime !== undefined}
             <span class="text-gray-50">{executionResult.executionTime}ms</span>
@@ -420,7 +451,7 @@
         {#if requestStep.request.dump && requestStep.request.dump.length > 0}
           <span class="text-xs text-gray-50 mt-2">Request</span>
           <!-- Request preview -->
-          <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-40 overflow-hidden">
+          <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-table-row-hover)] border border-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-40 overflow-hidden">
             {#each requestStep.request.dump.split('\n') as line, i}
               {#if i < 50}
                 <div class="truncate max-w-[180px]" style="min-height: 1.2em;">{line || ' '}</div>
@@ -434,7 +465,7 @@
         <!-- Response preview for successful requests -->
         {#if executionResult && executionResult.success && executionResult.transaction?.response?.dump && executionResult.transaction.response.dump.length > 0}
         <span class="text-xs text-gray-50 mt-2">Response</span>
-          <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-80 overflow-hidden">
+          <div class="text-xs text-gray-50 py-2 font-mono bg-[var(--color-table-row-hover)] border border-[var(--color-midnight-darker)] p-1 rounded mt-1 max-h-80 overflow-hidden">
             {#each executionResult.transaction.response.dump.split('\n') as line, i}
               {#if i < 50}
                 <div class="truncate max-w-[180px]" style="min-height: 1.2em;">{line || ' '}</div>
@@ -530,7 +561,7 @@
               checked={requestStep.gunzipResponse}
               on:change={(e) => handleSettingToggle(e, 'gunzipResponse')}
             />
-            <span class="text-sm text-gray-50">Gunzip Response</span>
+            <span class="text-sm text-gray-50">Decompress Response</span>
           </label>
         </div>
         

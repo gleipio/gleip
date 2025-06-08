@@ -56,7 +56,7 @@
   // Get step type label
   function getStepTypeLabel(stepType: string): string {
     switch (stepType) {
-      case 'request': return 'HTTP';
+      case 'request': return 'REQ';
       case 'script': return 'JS';
       case 'chef': return 'CHEF';
       case 'variables': return 'VAR';
@@ -231,14 +231,14 @@
         </div>
         <div class="flex items-center">
           <!-- Status indicator (after execution) -->
-          {#if executionResult}
+          <!-- {#if executionResult}
             <span class={`px-2 py-0.5 text-xs rounded mr-3 ${executionResult.success ? 'bg-green-500/30 text-green-300' : 'bg-red-500/30 text-red-300'}`}>
               {executionResult.success ? 'Success' : 'Failed'}
               {#if executionResult.executionTime !== undefined}
                 <span class="ml-1 text-gray-100">{executionResult.executionTime} ms</span>
               {/if}
             </span>
-          {/if}
+          {/if} -->
           
           <!-- Only show delete button if not Variables step -->
           {#if !(stepIndex === 0 && step.stepType === 'variables')}

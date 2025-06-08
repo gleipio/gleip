@@ -1,1 +1,5 @@
+✨ New Features
 Added Chef Steps. This type of step allows you to use *chef like syntax for variable manipulation.
+
+🐛 Bug Fixes
+Fixed a bug in which the "delete step" button in a gleipflow wouldn't save the state

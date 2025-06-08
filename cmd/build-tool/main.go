@@ -831,9 +831,9 @@ func publishRelease() {
 	os.MkdirAll(downloadDir, 0755)
 	defer os.RemoveAll(downloadDir)
 
-	// Get latest workflow run from vabbb/gleip
-	fmt.Println("🔍 Finding latest CI build from vabbb/gleip...")
-	cmd = exec.Command("gh", "run", "list", "--repo", "vabbb/gleip", "--limit", "1", "--status", "completed", "--json", "databaseId")
+	// Get latest workflow run from gleipio/gleip
+	fmt.Println("🔍 Finding latest CI build from gleipio/gleip...")
+	cmd = exec.Command("gh", "run", "list", "--repo", "gleipio/gleip", "--limit", "1", "--status", "completed", "--json", "databaseId")
 	output, err := cmd.Output()
 	if err != nil {
 		fmt.Printf("❌ Failed to get latest workflow run: %v\n", err)
@@ -859,7 +859,7 @@ func publishRelease() {
 
 	// Download all artifacts
 	fmt.Println("⬇️  Downloading CI artifacts...")
-	cmd = exec.Command("gh", "run", "download", runID, "--repo", "vabbb/gleip", "--dir", downloadDir)
+	cmd = exec.Command("gh", "run", "download", runID, "--repo", "gleipio/gleip", "--dir", downloadDir)
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("❌ Failed to download artifacts: %v\n", err)
 		os.Exit(1)

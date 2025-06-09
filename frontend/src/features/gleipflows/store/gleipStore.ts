@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep } from '../../../../wailsjs/go/backend/App';
+import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep, PasteRequestToGleipFlowAtPosition } from '../../../../wailsjs/go/backend/App';
 import { backend } from '../../../../wailsjs/go/models';
 import type { GleipFlow, ExecutionResult, GleipFlowStep } from '../types';
 import { generateRawHttpRequest } from '../utils/httpUtils';
@@ -454,6 +454,39 @@ export const updateChefAction = async (stepIndex: number, actionIndex: number, u
   } catch (error) {
     console.error('Failed to update chef action:', error);
     return false;
+  }
+};
+
+// Paste request from clipboard at specific position
+export const pasteRequestAtPosition = async (position: number) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) {
+    console.log('Invalid gleipFlowIndex');
+    return { success: false, message: 'No active gleipFlow to paste into' };
+  }
+  
+  const gleipFlow = $gleipFlows[$activeGleipFlowIndex];
+  
+  try {
+    // Call backend to paste the request
+    const newStep = await PasteRequestToGleipFlowAtPosition(gleipFlow.id, position);
+    
+    // Reload flows from backend to get updated state
+    await loadGleipFlows();
+    
+    // Set the new step as active
+    const updatedGleips = get(gleipFlows);
+    const updatedFlow = updatedGleips[$activeGleipFlowIndex];
+    if (updatedFlow) {
+      activeStepIndex.set(position === -1 ? updatedFlow.steps.length - 1 : position);
+    }
+    
+    return { success: true, message: 'Request pasted successfully' };
+  } catch (error) {
+    console.error('Failed to paste request:', error);
+    return { success: false, message: `Failed to paste request: ${error}` };
   }
 };
 

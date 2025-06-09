@@ -5,7 +5,7 @@
   import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition } from '../../../wailsjs/go/backend/App';
   import * as monaco from 'monaco-editor';
   import GleipStepCard from './components/GleipFlowStepCard.svelte';
-  import AddStepButton from './components/AddStepButton.svelte';
+  import AddStepButtons from './components/AddStepButtons.svelte';
   import ContextMenu from '../../shared/components/ContextMenu.svelte';
   import { GleipFlowExecutionService } from './services/GleipFlowExecutionService';
   import { 
@@ -21,7 +21,8 @@
     updateGleipFlow,
     addStep,
     deleteStep,
-    updateStepSelection
+    updateStepSelection,
+    pasteRequestAtPosition
   } from './store/gleipStore';
   import { getRequestFromClipboard, createRequestStepFromClipboard } from './utils/clipboardUtils';
   import type { GleipFlowStep, GleipFlow } from './types';
@@ -710,6 +711,28 @@
       return null;
     }
   }
+
+  // Paste a request at a specific position
+  async function pasteRequestAt(position: number) {
+    try {
+      const result = await pasteRequestAtPosition(position);
+      
+      if (result.success) {
+        // Expand the new step (account for variables step in UI)
+        const uiStepIndex = position + 1;
+        const newExpandedSet = new Set($expandedStepIndices);
+        newExpandedSet.add(uiStepIndex);
+        expandedStepIndices.set(newExpandedSet);
+        
+        showNotification(result.message);
+      } else {
+        showNotification(result.message);
+      }
+    } catch (error) {
+      console.error('Failed to paste request:', error);
+      showNotification(`Failed to paste request: ${error}`);
+    }
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -809,11 +832,11 @@
             <div class="flex-shrink-0 relative">
               <!-- Add button before the first request step -->
               {#if index === 1}
-                <AddStepButton 
+                <AddStepButtons
                   position="left" 
                   stepPosition={0} 
-                  stepType="request"
                   on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
+                  on:paste={(e) => pasteRequestAt(e.detail.position)}
                 />
               {/if}
               
@@ -836,11 +859,11 @@
               
               <!-- Add button after this step -->
               {#if index > 0}
-                <AddStepButton 
+                <AddStepButtons 
                   position="right" 
                   stepPosition={index} 
-                  stepType="request"
                   on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
+                  on:paste={(e) => pasteRequestAt(e.detail.position)}
                 />
               {/if}
             </div>

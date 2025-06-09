@@ -5,6 +5,7 @@ import (
 	"Gleip/backend/network"
 	"Gleip/backend/paths"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1008,6 +1009,124 @@ func (a *App) UpdateChefStep(gleipFlowID string, stepIndex int, inputVariable st
 
 	// Update and persist the flow
 	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// PasteRequestToGleipFlowAtPosition pastes a request from clipboard to a specific position in a GleipFlow
+func (a *App) PasteRequestToGleipFlowAtPosition(gleipFlowID string, position int) (*GleipFlowStep, error) {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Validate position
+	if position < -1 || position > len(gleipFlow.Steps) {
+		return nil, fmt.Errorf("invalid position %d for inserting step (valid range: 0-%d or -1 for end)", position, len(gleipFlow.Steps))
+	}
+
+	// Get clipboard content
+	clipboardText, err := rt.ClipboardGetText(a.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get clipboard text: %v", err)
+	}
+
+	if strings.TrimSpace(clipboardText) == "" {
+		return nil, fmt.Errorf("clipboard is empty")
+	}
+
+	// Try to parse as JSON first (from our own copy operations)
+	var httpRequest network.HTTPRequest
+	if err := json.Unmarshal([]byte(clipboardText), &httpRequest); err == nil {
+		// Successfully parsed as JSON - validate it has required fields
+		if httpRequest.Host == "" || httpRequest.Dump == "" {
+			return nil, fmt.Errorf("invalid JSON format: missing required fields (host, dump)")
+		}
+		// Use it directly
+	} else {
+		// Try to parse as raw HTTP request
+		lines := strings.Split(clipboardText, "\n")
+		if len(lines) == 0 {
+			return nil, fmt.Errorf("invalid request format: empty content")
+		}
+
+		// Check if first line looks like an HTTP request line
+		firstLine := strings.TrimSpace(lines[0])
+		if !strings.Contains(firstLine, "HTTP/") {
+			return nil, fmt.Errorf("invalid request format: doesn't appear to be an HTTP request")
+		}
+
+		// Parse the request line to validate format
+		parts := strings.Fields(firstLine)
+		if len(parts) < 3 {
+			return nil, fmt.Errorf("invalid HTTP request line format")
+		}
+
+		// Extract host from Host header (required for raw HTTP requests)
+		var host string
+		for _, line := range lines[1:] {
+			trimmedLine := strings.TrimSpace(line)
+			if strings.HasPrefix(strings.ToLower(trimmedLine), "host:") {
+				// Extract host value after "Host:"
+				hostParts := strings.SplitN(trimmedLine, ":", 2)
+				if len(hostParts) == 2 {
+					host = strings.TrimSpace(hostParts[1])
+				}
+				break
+			}
+		}
+
+		if host == "" {
+			return nil, fmt.Errorf("invalid request format: Host header not found")
+		}
+
+		// Create HTTP request with TLS=true as specified
+		httpRequest = network.HTTPRequest{
+			Host: host,
+			Dump: clipboardText,
+			TLS:  true, // Always assume TLS=true for raw HTTP requests as specified
+		}
+	}
+
+	// Count existing request steps for naming
+	requestCount := 0
+	for _, step := range gleipFlow.Steps {
+		if step.StepType == "request" {
+			requestCount++
+		}
+	}
+
+	// Create new request step
+	newStep := GleipFlowStep{
+		StepType: "request",
+		Selected: true,
+		RequestStep: &RequestStep{
+			ID:                       uuid.New().String(),
+			Name:                     fmt.Sprintf("Request %d", requestCount+1),
+			Request:                  httpRequest,
+			VariableExtracts:         []VariableExtract{},
+			RecalculateContentLength: true,
+			GunzipResponse:           true,
+		},
+	}
+
+	// Insert step at the specified position
+	if position == -1 || position == len(gleipFlow.Steps) {
+		// Add to the end
+		gleipFlow.Steps = append(gleipFlow.Steps, newStep)
+	} else {
+		// Insert at specific position
+		gleipFlow.Steps = append(gleipFlow.Steps[:position], append([]GleipFlowStep{newStep}, gleipFlow.Steps[position:]...)...)
+	}
+
+	// Track step addition
+	TrackFlowStepExecuted(gleipFlowID, "request", true)
+
+	// Update and persist the flow
+	err = a.UpdateGleipFlow(*gleipFlow)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save gleipFlow: %v", err)
+	}
+
+	return &newStep, nil
 }
 
 // UpdateGleipFlow updates a gleipFlow and automatically saves

@@ -424,11 +424,11 @@ func createDMG(appPath, version string) {
 	runCmd("cp", "-R", appPath, tempDir+"/")
 
 	if commandExists("create-dmg") {
-		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, tempDir)
+		runCmd("create-dmg", "--volname", "Gleip", "--window-size", "800", "400", "--app-drop-link", "600", "185", dmgPath, tempDir)
 	} else if commandExists("hdiutil") {
 		// Create Applications symlink for hdiutil
 		runCmd("ln", "-s", "/Applications", tempDir+"/Applications")
-		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
+		runCmd("hdiutil", "create", "-volname", "Gleip", "-srcfolder", tempDir, "-ov", "-format", "UDZO", dmgPath)
 	}
 
 	os.RemoveAll(tempDir)
@@ -757,9 +757,9 @@ func signCIDmg(dmgPath string) {
 	fmt.Printf("Creating signed DMG: %s\n", signedDmgName)
 
 	if commandExists("create-dmg") {
-		runCmd("create-dmg", "--volname", "Gleip Installer", "--window-size", "800", "400", signedDmgPath, extractDir)
+		runCmd("create-dmg", "--volname", "Gleip", "--window-size", "800", "400", signedDmgPath, extractDir)
 	} else if commandExists("hdiutil") {
-		runCmd("hdiutil", "create", "-volname", "Gleip Installer", "-srcfolder", extractDir, "-ov", "-format", "UDZO", signedDmgPath)
+		runCmd("hdiutil", "create", "-volname", "Gleip", "-srcfolder", extractDir, "-ov", "-format", "UDZO", signedDmgPath)
 	} else {
 		fmt.Println("❌ Neither create-dmg nor hdiutil found for DMG creation")
 		os.Exit(1)

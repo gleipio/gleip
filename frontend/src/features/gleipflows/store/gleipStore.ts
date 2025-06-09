@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep, PasteRequestToGleipFlowAtPosition } from '../../../../wailsjs/go/backend/App';
+import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep, PasteRequestToGleipFlowAtPosition, UpdateStepExpansion } from '../../../../wailsjs/go/backend/App';
 import { backend } from '../../../../wailsjs/go/models';
 import type { GleipFlow, ExecutionResult, GleipFlowStep } from '../types';
 import { generateRawHttpRequest } from '../utils/httpUtils';
@@ -11,7 +11,6 @@ export const activeStepIndex = writable<number | null>(null);
 export const isExecuting = writable<boolean>(false);
 export const isCreatingGleipFlow = writable<boolean>(false);
 export const newGleipFlowName = writable<string>('');
-export const expandedStepIndices = writable<Set<number>>(new Set());
 
 export const updatedRequestIds = writable<Set<string>>(new Set());
 
@@ -59,6 +58,7 @@ export const loadGleipFlows = async () => {
         variables: variables,
         sortingIndex: gleipFlow.sortingIndex || 0,
         executionResults: gleipFlow.executionResults || [], // Include execution results from backend
+        isVariableStepExpanded: gleipFlow.isVariableStepExpanded || false, // Load variables step expansion state
         steps: gleipSteps.map(step => {
           let convertedStep: GleipFlowStep = {
             stepType: step.stepType,
@@ -67,19 +67,22 @@ export const loadGleipFlows = async () => {
           
           if (step.requestStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.requestStep.id || undefined;
+            const stepId = step.requestStep.stepAttributes.id;
             if (stepId === undefined) {
               console.error('Request Step ID is undefined');
             }
             
             convertedStep.requestStep = {
-              id: stepId,
-              name: step.requestStep.name,
+              stepAttributes: {
+                id: stepId,
+                name: step.requestStep.stepAttributes.name,
+                isExpanded: step.requestStep.stepAttributes.isExpanded // Load expansion state from backend
+              },
               request: step.requestStep.request,
+              response: step.requestStep.response || { dump: '' },
               variableExtracts: step.requestStep.variableExtracts || [],
               recalculateContentLength: step.requestStep.recalculateContentLength || true,
               gunzipResponse: step.requestStep.gunzipResponse || true,
-              isConfigExpanded: step.requestStep.isConfigExpanded || false,
               isFuzzMode: step.requestStep.isFuzzMode || false,
               fuzzSettings: step.requestStep.fuzzSettings
             };
@@ -90,28 +93,34 @@ export const loadGleipFlows = async () => {
           
           if (step.scriptStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.scriptStep.id || undefined;
+            const stepId = step.scriptStep.stepAttributes.id || undefined;
             if (stepId === undefined) {
               console.error('Script Step ID is undefined');
             }
 
             convertedStep.scriptStep = {
-              id: stepId,
-              name: step.scriptStep.name,
+              stepAttributes: {
+                id: stepId,
+                name: step.scriptStep.stepAttributes.name,
+                isExpanded: step.scriptStep.stepAttributes.isExpanded // Load expansion state from backend
+              },
               content: step.scriptStep.content
             };
           }
           
           if (step.chefStep) {
             // Preserve the original step ID or generate a new one if missing
-            const stepId = step.chefStep.id || undefined;
+            const stepId = step.chefStep.stepAttributes.id || undefined;
             if (stepId === undefined) {
               console.error('Chef Step ID is undefined');
             }
             
             convertedStep.chefStep = {
-              id: stepId,
-              name: step.chefStep.name,
+              stepAttributes: {
+                id: stepId,
+                name: step.chefStep.stepAttributes.name,
+                isExpanded: step.chefStep.stepAttributes.isExpanded // Load expansion state from backend
+              },
               inputVariable: step.chefStep.inputVariable,
               actions: step.chefStep.actions || [],
               outputVariable: step.chefStep.outputVariable
@@ -344,6 +353,79 @@ export const updateStepSelection = async (index: number, selected: boolean) => {
   return true;
 };
 
+export const updateStepExpansion = async (index: number, isExpanded: boolean) => {
+  const $activeGleipFlowIndex = get(activeGleipFlowIndex);
+  const $gleipFlows = get(gleipFlows);
+  
+  if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return;
+  
+  // Create a deep copy of the gleipFlow to avoid reference issues
+  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
+  
+  // Handle variables step (index -1)
+  if (index === -1) {
+    gleipFlow.isVariableStepExpanded = isExpanded;
+    
+    // Update the store
+    const updatedGleipFlows = [
+      ...$gleipFlows.slice(0, $activeGleipFlowIndex),
+      gleipFlow,
+      ...$gleipFlows.slice($activeGleipFlowIndex + 1)
+    ];
+    gleipFlows.set(updatedGleipFlows);
+    
+    // Update backend
+    await UpdateStepExpansion(gleipFlow.id, index, isExpanded);
+    return;
+  }
+  
+  if (index < 0 || index >= gleipFlow.steps.length) return;
+  
+  // Update the step expansion
+  gleipFlow.steps = gleipFlow.steps.map((step, i) => {
+    if (i !== index) return step;
+    
+    const updatedStep = { ...step };
+    if (step.stepType === 'request' && step.requestStep) {
+      updatedStep.requestStep = {
+        ...step.requestStep,
+        stepAttributes: {
+          ...step.requestStep.stepAttributes,
+          isExpanded: isExpanded
+        }
+      };
+    } else if (step.stepType === 'script' && step.scriptStep) {
+      updatedStep.scriptStep = {
+        ...step.scriptStep,
+        stepAttributes: {
+          ...step.scriptStep.stepAttributes,
+          isExpanded: isExpanded
+        }
+      };
+    } else if (step.stepType === 'chef' && step.chefStep) {
+      updatedStep.chefStep = {
+        ...step.chefStep,
+        stepAttributes: {
+          ...step.chefStep.stepAttributes,
+          isExpanded: isExpanded
+        }
+      };
+    }
+    return updatedStep;
+  });
+  
+  // Update the store
+  const updatedGleipFlows = [
+    ...$gleipFlows.slice(0, $activeGleipFlowIndex),
+    gleipFlow,
+    ...$gleipFlows.slice($activeGleipFlowIndex + 1)
+  ];
+  gleipFlows.set(updatedGleipFlows);
+  
+  // Update backend
+  await UpdateStepExpansion(gleipFlow.id, index, isExpanded);
+};
+
 // Chef Step Management Functions
 export const updateChefStep = async (stepIndex: number, updates: any) => {
   const $activeGleipFlowIndex = get(activeGleipFlowIndex);
@@ -365,7 +447,7 @@ export const updateChefStep = async (stepIndex: number, updates: any) => {
       stepIndex, 
       updates.inputVariable || step.chefStep.inputVariable || '',
       updates.outputVariable || step.chefStep.outputVariable || '',
-      updates.name || step.chefStep.name || ''
+      updates.name || step.chefStep.stepAttributes.name || ''
     );
     
     // Reload flows from backend to get updated state
@@ -511,8 +593,9 @@ export const updateGleipFlow = async (gleipFlow: GleipFlow) => {
     // Call backend UpdateGleipFlow which automatically saves
     await UpdateGleipFlow(backend.GleipFlow.createFrom(gleipFlow));
     
-    // Refresh frontend state from backend (source of truth)
-    await loadGleipFlows();
+    // Don't reload - this causes infinite loops
+    // The backend is the source of truth, but we don't need to reload everything
+    // await loadGleipFlows();
     
     return true;
   } catch (error) {

@@ -142,8 +142,8 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 // executeRequestStep executes a single request step
 func (e *GleipFlowExecutor) executeRequestStep(step *RequestStep, ctx *ExecutionContext) ExecutionResult {
 	result := ExecutionResult{
-		StepID:   step.ID,
-		StepName: step.Name,
+		StepID:   step.StepAttributes.ID,
+		StepName: step.StepAttributes.Name,
 		StepType: "request",
 		Success:  true,
 	}
@@ -253,13 +253,13 @@ func (e *GleipFlowExecutor) executeBuilderRequest(step *RequestStep, ctx *Execut
 // executeFuzzStep executes a fuzz request step
 func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionContext) ExecutionResult {
 	result := ExecutionResult{
-		StepID:   step.ID,
-		StepName: step.Name,
+		StepID:   step.StepAttributes.ID,
+		StepName: step.StepAttributes.Name,
 		StepType: "request",
 		Success:  true,
 	}
 
-	TrackFuzzingStarted("", step.ID, len(step.FuzzSettings.CurrentWordlist))
+	TrackFuzzingStarted("", step.StepAttributes.ID, len(step.FuzzSettings.CurrentWordlist))
 
 	if step.FuzzSettings.FuzzResults == nil {
 		step.FuzzSettings.FuzzResults = []FuzzResult{}
@@ -287,7 +287,7 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 			fmt.Printf("Fuzzing cancelled after %d results\n", len(step.FuzzSettings.FuzzResults))
 			result.Success = true
 			result.Transaction = createSampleTransaction(step, step.FuzzSettings.FuzzResults)
-			TrackFuzzingCompleted("", step.ID, len(step.FuzzSettings.FuzzResults), true)
+			TrackFuzzingCompleted("", step.StepAttributes.ID, len(step.FuzzSettings.FuzzResults), true)
 			return result
 		default:
 		}
@@ -301,7 +301,7 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 
 		// Emit update
 		if e.eventEmitter != nil {
-			e.eventEmitter.EmitFuzzUpdate(step.ID, step.FuzzSettings.FuzzResults)
+			e.eventEmitter.EmitFuzzUpdate(step.StepAttributes.ID, step.FuzzSettings.FuzzResults)
 		}
 
 		// Sleep between requests
@@ -319,7 +319,7 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 	result.Transaction = createSampleTransaction(step, step.FuzzSettings.FuzzResults)
 	result.ActualRawRequest = step.Request.Dump
 
-	TrackFuzzingCompleted("", step.ID, len(step.FuzzSettings.FuzzResults), cancelled)
+	TrackFuzzingCompleted("", step.StepAttributes.ID, len(step.FuzzSettings.FuzzResults), cancelled)
 
 	return result
 }
@@ -378,8 +378,8 @@ func (e *GleipFlowExecutor) sleepWithCancellation(duration time.Duration, done <
 // executeScriptStep executes a script step
 func (e *GleipFlowExecutor) executeScriptStep(step *ScriptStep, ctx *ExecutionContext) ExecutionResult {
 	result := ExecutionResult{
-		StepID:   step.ID,
-		StepName: step.Name,
+		StepID:   step.StepAttributes.ID,
+		StepName: step.StepAttributes.Name,
 		StepType: "script",
 		Success:  true,
 	}
@@ -399,8 +399,8 @@ func (e *GleipFlowExecutor) executeScriptStep(step *ScriptStep, ctx *ExecutionCo
 // executeChefStep executes a chef step
 func (e *GleipFlowExecutor) executeChefStep(step *chef.ChefStep, ctx *ExecutionContext) ExecutionResult {
 	result := ExecutionResult{
-		StepID:   step.ID,
-		StepName: step.Name,
+		StepID:   step.StepAttributes.ID,
+		StepName: step.StepAttributes.Name,
 		StepType: "chef",
 		Success:  true,
 	}
@@ -420,7 +420,7 @@ func (e *GleipFlowExecutor) executeChefStep(step *chef.ChefStep, ctx *ExecutionC
 		result.Success = false
 		result.ErrorMessage = fmt.Sprintf("Chef step execution failed: %v", err)
 		TrackError("chef", result.ErrorMessage)
-		TrackChefStepExecuted("", step.ID, len(step.Actions), false)
+		TrackChefStepExecuted("", step.StepAttributes.ID, len(step.Actions), false)
 		return result
 	}
 
@@ -433,7 +433,7 @@ func (e *GleipFlowExecutor) executeChefStep(step *chef.ChefStep, ctx *ExecutionC
 	}
 
 	// Track successful chef step execution
-	TrackChefStepExecuted("", step.ID, len(step.Actions), true)
+	TrackChefStepExecuted("", step.StepAttributes.ID, len(step.Actions), true)
 
 	return result
 }
@@ -483,22 +483,22 @@ func createErrorResult(stepID, stepName, stepType, errorMessage string) Executio
 
 func getStepID(step GleipFlowStep) string {
 	if step.StepType == "request" && step.RequestStep != nil {
-		return step.RequestStep.ID
+		return step.RequestStep.StepAttributes.ID
 	} else if step.StepType == "script" && step.ScriptStep != nil {
-		return step.ScriptStep.ID
+		return step.ScriptStep.StepAttributes.ID
 	} else if step.StepType == "chef" && step.ChefStep != nil {
-		return step.ChefStep.ID
+		return step.ChefStep.StepAttributes.ID
 	}
 	return ""
 }
 
 func getStepName(step GleipFlowStep) string {
 	if step.StepType == "request" && step.RequestStep != nil {
-		return step.RequestStep.Name
+		return step.RequestStep.StepAttributes.Name
 	} else if step.StepType == "script" && step.ScriptStep != nil {
-		return step.ScriptStep.Name
+		return step.ScriptStep.StepAttributes.Name
 	} else if step.StepType == "chef" && step.ChefStep != nil {
-		return step.ChefStep.Name
+		return step.ChefStep.StepAttributes.Name
 	}
 	return "Unknown"
 }

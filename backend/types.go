@@ -2,15 +2,15 @@ package backend
 
 import (
 	"Gleip/backend/chef"
+	"Gleip/backend/gleipflow"
 	"Gleip/backend/network"
 	"fmt"
 )
 
 // ScriptStep represents a script execution step in a request gleip
 type ScriptStep struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Content string `json:"content"` // JavaScript code to execute
+	StepAttributes gleipflow.StepAttributes `json:"stepAttributes"`
+	Content        string                   `json:"content"` // JavaScript code to execute
 }
 
 // FuzzResult represents the result of a single fuzz request
@@ -41,16 +41,14 @@ type GleipFlowStep struct {
 
 // RequestStep represents an HTTP request step in a request gleip
 type RequestStep struct {
-	ID                       string               `json:"id"`
-	Name                     string               `json:"name"`
-	Request                  network.HTTPRequest  `json:"request"`
-	Response                 network.HTTPResponse `json:"response"`
-	VariableExtracts         []VariableExtract    `json:"variableExtracts"` // Variables to extract from response
-	RecalculateContentLength bool                 `json:"recalculateContentLength"`
-	GunzipResponse           bool                 `json:"gunzipResponse"`
-	FuzzSettings             *FuzzSettings        `json:"fuzzSettings,omitempty"` // Optional fuzz settings
-	IsConfigExpanded         bool                 `json:"isConfigExpanded"`       // Whether the configuration section is expanded
-	IsFuzzMode               bool                 `json:"isFuzzMode"`             // Whether the step is in fuzz mode vs parse mode
+	StepAttributes           gleipflow.StepAttributes `json:"stepAttributes"`
+	Request                  network.HTTPRequest      `json:"request"`
+	Response                 network.HTTPResponse     `json:"response"`
+	VariableExtracts         []VariableExtract        `json:"variableExtracts"` // Variables to extract from response
+	RecalculateContentLength bool                     `json:"recalculateContentLength"`
+	GunzipResponse           bool                     `json:"gunzipResponse"`
+	FuzzSettings             *FuzzSettings            `json:"fuzzSettings,omitempty"` // Optional fuzz settings
+	IsFuzzMode               bool                     `json:"isFuzzMode"`             // Whether the step is in fuzz mode vs parse mode
 }
 
 // VariableExtract represents a variable to extract from a response
@@ -68,32 +66,33 @@ type Step interface {
 
 // GetID returns the ID of a ScriptStep
 func (s ScriptStep) GetID() string {
-	return s.ID
+	return s.StepAttributes.ID
 }
 
 // GetName returns the name of a ScriptStep
 func (s ScriptStep) GetName() string {
-	return s.Name
+	return s.StepAttributes.Name
 }
 
 // GetID returns the ID of a RequestStep
 func (r RequestStep) GetID() string {
-	return r.ID
+	return r.StepAttributes.ID
 }
 
 // GetName returns the name of a RequestStep
 func (r RequestStep) GetName() string {
-	return r.Name
+	return r.StepAttributes.Name
 }
 
 // GleipFlow represents a sequence of HTTP requests and scripts
 type GleipFlow struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	Steps            []GleipFlowStep   `json:"steps"`
-	Variables        map[string]string `json:"variables"`
-	SortingIndex     int               `json:"sortingIndex"`
-	ExecutionResults []ExecutionResult `json:"executionResults,omitempty"`
+	ID                     string            `json:"id"`
+	Name                   string            `json:"name"`
+	Steps                  []GleipFlowStep   `json:"steps"`
+	Variables              map[string]string `json:"variables"`
+	SortingIndex           int               `json:"sortingIndex"`
+	ExecutionResults       []ExecutionResult `json:"executionResults,omitempty"`
+	IsVariableStepExpanded bool              `json:"isVariableStepExpanded"` // Expansion state for variables step
 }
 
 // ExecutionContext represents the context for gleip execution

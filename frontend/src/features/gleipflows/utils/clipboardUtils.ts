@@ -2,6 +2,7 @@ import { ClipboardGetText } from '../../../../wailsjs/runtime/runtime';
 import { parseRawHttpRequest } from './httpUtils';
 import { network } from '../../../../wailsjs/go/models';
 import { CreateHTTPRequest } from '../../../../wailsjs/go/backend/App';
+import type { RequestStep } from '../types';
 
 /**
  * Check if an object is an HTTPRequest format
@@ -98,36 +99,20 @@ async function tryParseRawHttp(text: string): Promise<{
 /**
  * Create a new flow step from clipboard request data
  */
-export function createRequestStepFromClipboard(request: network.HTTPRequest): {
-  stepType: string;
-  selected: boolean;
-  requestStep: {
-    id: string;
-    name: string;
-    request: network.HTTPRequest;
-    response: network.HTTPResponse;
-    variableExtracts: [];
-    recalculateContentLength: boolean;
-    gunzipResponse: boolean;
-    isConfigExpanded: boolean;
-    isFuzzMode: boolean;
-  };
-} {
+export function createRequestStepFromClipboard(request: network.HTTPRequest): RequestStep {
   const uniqueId = crypto.randomUUID();
 
   return {
-    stepType: 'request',
-    selected: true,
-    requestStep: {
-      id: uniqueId,
-      name: `Request`,
+      stepAttributes: {
+        id: uniqueId,
+        name: `Request`,
+        isExpanded: false
+      },
       request: request as network.HTTPRequest,
       response: { dump: '' } as network.HTTPResponse,
       variableExtracts: [],
       recalculateContentLength: true,
       gunzipResponse: true,
-      isConfigExpanded: false,
       isFuzzMode: false
     }
-  };
 } 

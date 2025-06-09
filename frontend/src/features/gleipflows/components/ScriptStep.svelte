@@ -12,7 +12,7 @@
   
   // Handle Monaco editor mount
   function handleScriptEditorMount(e: CustomEvent) {
-    dispatch('editorMount', { editor: e.detail.editor, type: 'script', stepId: scriptStep.id });
+    dispatch('editorMount', { editor: e.detail.editor, type: 'script', stepId: scriptStep.stepAttributes.id });
   }
   
   // Handle script change
@@ -65,7 +65,7 @@
             {isExecuting ? 'Executing...' : 'Run Script'}
           </button>
         </div>
-        <div class="w-full h-48 border border-[var(--color-table-border)] overflow-hidden" aria-labelledby="script-editor-label-{scriptStep.id}">
+        <div class="w-full h-48 border border-[var(--color-table-border)] overflow-hidden" aria-labelledby="script-editor-label-{scriptStep.stepAttributes.id}">
           <MonacoEditor
             language="javascript"
             value={scriptStep.content || ''}

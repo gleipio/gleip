@@ -285,19 +285,6 @@
       {/if}
     </div>
   {:else}
-    <!-- Expanded view -->
-    <!-- Step Name -->
-    <!-- <div class="flex items-center space-x-2">
-      <label class="text-sm font-medium text-gray-100 w-20">Name:</label>
-      <input
-        type="text"
-        class="flex-1 px-3 py-1 bg-gray-800 border border-gray-600 rounded text-gray-100 text-sm focus:outline-none focus:border-blue-400"
-        bind:value={chefStep.name}
-        on:input={(e) => updateName(e.currentTarget.value)}
-        placeholder="Chef Step Name"
-      />
-    </div> -->
-
     <!-- Input/Output Variables -->
     <div class="flex items-center space-x-2">
       <!-- Input Variable Selection -->

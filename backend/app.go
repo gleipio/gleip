@@ -2,6 +2,7 @@ package backend
 
 import (
 	"Gleip/backend/chef"
+	"Gleip/backend/gleipflow"
 	"Gleip/backend/network"
 	"Gleip/backend/paths"
 	"context"
@@ -1002,10 +1003,51 @@ func (a *App) UpdateChefStep(gleipFlowID string, stepIndex int, inputVariable st
 
 	// Update the chef step properties
 	if name != "" {
-		step.ChefStep.Name = name
+		step.ChefStep.StepAttributes.Name = name
 	}
 	step.ChefStep.InputVariable = inputVariable
 	step.ChefStep.OutputVariable = outputVariable
+
+	// Update and persist the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// UpdateStepExpansion updates the expansion state of a step
+func (a *App) UpdateStepExpansion(gleipFlowID string, stepIndex int, isExpanded bool) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Handle variables step (stepIndex -1 indicates variables step)
+	if stepIndex == -1 {
+		gleipFlow.IsVariableStepExpanded = isExpanded
+		return a.UpdateGleipFlow(*gleipFlow)
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	step := &gleipFlow.Steps[stepIndex]
+
+	// Update the expansion state based on step type
+	switch step.StepType {
+	case "request":
+		if step.RequestStep != nil {
+			step.RequestStep.StepAttributes.IsExpanded = isExpanded
+		}
+	case "script":
+		if step.ScriptStep != nil {
+			step.ScriptStep.StepAttributes.IsExpanded = isExpanded
+		}
+	case "chef":
+		if step.ChefStep != nil {
+			step.ChefStep.StepAttributes.IsExpanded = isExpanded
+		}
+	default:
+		return fmt.Errorf("cannot update expansion for step type: %s", step.StepType)
+	}
 
 	// Update and persist the flow
 	return a.UpdateGleipFlow(*gleipFlow)
@@ -1099,8 +1141,11 @@ func (a *App) PasteRequestToGleipFlowAtPosition(gleipFlowID string, position int
 		StepType: "request",
 		Selected: true,
 		RequestStep: &RequestStep{
-			ID:                       uuid.New().String(),
-			Name:                     fmt.Sprintf("Request %d", requestCount+1),
+			StepAttributes: gleipflow.StepAttributes{
+				ID:         uuid.New().String(),
+				Name:       fmt.Sprintf("Request %d", requestCount+1),
+				IsExpanded: true,
+			},
 			Request:                  httpRequest,
 			VariableExtracts:         []VariableExtract{},
 			RecalculateContentLength: true,

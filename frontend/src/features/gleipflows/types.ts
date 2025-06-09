@@ -1,15 +1,20 @@
 import { backend, network } from '../../../wailsjs/go/models';
 
-// Types for request gleip
-export type RequestStep = {
+export type StepAttributes = {
   id: string;
   name: string;
+  isExpanded: boolean;
+};
+
+// Types for request gleip
+export type RequestStep = {
+  stepAttributes: StepAttributes;
   request: network.HTTPRequest; // This contains the raw HTTP dump and metadata
+  response: network.HTTPResponse;
   variableExtracts: VariableExtract[];
   recalculateContentLength: boolean;
   gunzipResponse: boolean;
   fuzzSettings?: FuzzSettings; // Optional fuzz settings
-  isConfigExpanded: boolean; // Whether the configuration section is expanded
   isFuzzMode: boolean; // Whether the step is in fuzz mode vs parse mode
 };
 
@@ -29,8 +34,7 @@ export type FuzzResult = {
 };
 
 export type ScriptStep = {
-  id: string;
-  name: string;
+  stepAttributes: StepAttributes;
   content: string;
 };
 
@@ -42,8 +46,7 @@ export type ChefAction = {
 };
 
 export type ChefStep = {
-  id: string;
-  name: string;
+  stepAttributes: StepAttributes;
   inputVariable: string;
   actions: ChefAction[];
   outputVariable: string;
@@ -71,6 +74,7 @@ export type GleipFlow = {
   steps: GleipFlowStep[];
   sortingIndex: number; // Index for tab ordering (1 to n)
   executionResults?: ExecutionResult[]; // Execution results from the backend
+  isVariableStepExpanded?: boolean; // Expansion state for variables step
 };
 
 export type ExecutionResult = backend.ExecutionResult & {

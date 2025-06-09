@@ -71,15 +71,15 @@
     return 'bg-gray-500/20 text-gray-50';
   }
   
-  // Initialize isFuzzMode and isConfigExpanded if they don't exist yet
+  // Initialize isFuzzMode and isExpanded if they don't exist yet
   // This handles backward compatibility with older data
   $: {
     if (requestStep.isFuzzMode === undefined) {
       dispatch('update', { isFuzzMode: !!requestStep.fuzzSettings });
     }
     
-    if (requestStep.isConfigExpanded === undefined) {
-      dispatch('update', { isConfigExpanded: false });
+    if (requestStep.stepAttributes.isExpanded === undefined) {
+      dispatch('update', { isExpanded: false });
     }
   }
   
@@ -118,7 +118,7 @@
   
   // Handle Monaco editor mount
   function handleRequestEditorMount(e: CustomEvent) {
-    dispatch('editorMount', { editor: e.detail.editor, type: 'request', stepId: requestStep.id });
+    dispatch('editorMount', { editor: e.detail.editor, type: 'request', stepId: requestStep.stepAttributes.id });
   }
   
   // Handle request change
@@ -281,7 +281,7 @@
     }
     
     // Collapse the fuzz configuration when starting to fuzz
-    dispatch('update', { isConfigExpanded: false });
+    dispatch('update', { isExpanded: false });
     
     // Log current state before starting
     console.log("Starting fuzzing with settings:", { 
@@ -294,7 +294,7 @@
   
   // Toggle fuzz configuration
   function toggleFuzzConfig() {
-    dispatch('update', { isConfigExpanded: !requestStep.isConfigExpanded });
+    dispatch('update', { isExpanded: !requestStep.stepAttributes.isExpanded });
   }
   
   // Fuzz result handling
@@ -504,7 +504,7 @@
       <!-- Request section -->
       <div class="w-full">
         <div class="flex flex-col gap-2 mb-2">
-          <!-- <label for="host-input-{requestStep.id}" class="block text-sm font-medium text-gray-50">Host</label> -->
+          <!-- <label for="host-input-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50">Host</label> -->
           <div class="flex items-center gap-2">
             <!-- TLS Switch -->
             <div class="flex items-center">
@@ -525,7 +525,7 @@
             </div>
             
             <input
-              id="host-input-{requestStep.id}"
+              id="host-input-{requestStep.stepAttributes.id}"
               type="text"
               class="bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-3 py-2 rounded text-sm flex-grow"
               placeholder="e.g. api.example.com"
@@ -568,8 +568,8 @@
           </label>
         </div>
         
-        <h3 id="http-editor-label-{requestStep.id}" class="block text-sm font-medium text-gray-50 mb-1">Request</h3>
-        <div class="w-full h-48 border border-[var(--color-table-border)] overflow-hidden" aria-labelledby="http-editor-label-{requestStep.id}">
+        <h3 id="http-editor-label-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Request</h3>
+        <div class="w-full h-48 border border-[var(--color-table-border)] overflow-hidden" aria-labelledby="http-editor-label-{requestStep.stepAttributes.id}">
           <MonacoEditor
             language={mode === 'fuzz' ? 'httpWithVarsAndFuzz' : 'httpWithVars'}
             value={requestStep.request.dump}
@@ -658,9 +658,9 @@
                         <div class="flex-grow grid grid-cols-3 gap-2">
                           <!-- Variable name -->
                           <div>
-                            <label for="var-name-{requestStep.id}-{i}" class="block text-xs text-gray-50 mb-1">Variable Name</label>
+                            <label for="var-name-{requestStep.stepAttributes.id}-{i}" class="block text-xs text-gray-50 mb-1">Variable Name</label>
                             <input
-                              id="var-name-{requestStep.id}-{i}"
+                              id="var-name-{requestStep.stepAttributes.id}-{i}"
                               type="text"
                               class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-2 py-1 rounded text-sm"
                               placeholder="variableName"
@@ -671,9 +671,9 @@
                           
                           <!-- Source type -->
                           <div>
-                            <label for="var-source-{requestStep.id}-{i}" class="block text-xs text-gray-50 mb-1">Source</label>
+                            <label for="var-source-{requestStep.stepAttributes.id}-{i}" class="block text-xs text-gray-50 mb-1">Source</label>
                             <select
-                              id="var-source-{requestStep.id}-{i}"
+                              id="var-source-{requestStep.stepAttributes.id}-{i}"
                               class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-2 py-1 rounded text-sm"
                               value={extraction.source}
                               on:change={(e) => updateVariableExtraction(i, 'source', e.currentTarget.value)}
@@ -688,7 +688,7 @@
                           
                           <!-- Selector -->
                           <div>
-                            <label for="var-selector-{requestStep.id}-{i}" class="block text-xs text-gray-50 mb-1">
+                            <label for="var-selector-{requestStep.stepAttributes.id}-{i}" class="block text-xs text-gray-50 mb-1">
                               {#if extraction.source === 'header'}
                                 Header Name
                               {:else if extraction.source === 'body-json'}
@@ -702,7 +702,7 @@
                               {/if}
                             </label>
                             <input
-                              id="var-selector-{requestStep.id}-{i}"
+                              id="var-selector-{requestStep.stepAttributes.id}-{i}"
                               type="text"
                               class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-2 py-1 rounded text-sm"
                               placeholder={
@@ -758,7 +758,7 @@
             >
               <div class="flex items-center">
                 <span class="text-sm font-medium text-gray-50">
-                  {requestStep.isConfigExpanded 
+                    {requestStep.stepAttributes.isExpanded 
                     ? 'Wordlist Settings' 
                     : `Wordlist Settings (${requestStep.fuzzSettings?.currentWordlist?.length || 0} words, ${requestStep.fuzzSettings?.delay || 0.3}s delay)`}
                 </span>
@@ -768,18 +768,18 @@
                   </span>
                 {/if}
               </div>
-              <span class="text-gray-50">{requestStep.isConfigExpanded ? '▲' : '▼'}</span>
+              <span class="text-gray-50">{requestStep.stepAttributes.isExpanded ? '▲' : '▼'}</span>
             </div>
             
-            {#if !requestStep.isConfigExpanded}
+            {#if !requestStep.stepAttributes.isExpanded}
               <div class="p-3 border border-[var(--color-table-border)] bg-[var(--color-midnight)] rounded mb-3">
                 <div class="flex flex-col gap-3">
                   <!-- Wordlist upload -->
                   <div>
-                    <label for="wordlist-upload-{requestStep.id}" class="block text-sm font-medium text-gray-50 mb-1">Wordlist</label>
+                    <label for="wordlist-upload-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Wordlist</label>
                     <div class="flex items-center gap-2">
                       <input
-                        id="wordlist-upload-{requestStep.id}"
+                        id="wordlist-upload-{requestStep.stepAttributes.id}"
                         type="file"
                         class="text-sm text-gray-50"
                         accept=".txt"
@@ -793,9 +793,9 @@
                   
                   <!-- Delay setting -->
                   <div>
-                    <label for="delay-input-{requestStep.id}" class="block text-sm font-medium text-gray-50 mb-1">Delay between requests (seconds)</label>
+                    <label for="delay-input-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Delay between requests (seconds)</label>
                     <input
-                      id="delay-input-{requestStep.id}"
+                      id="delay-input-{requestStep.stepAttributes.id}"
                       type="number"
                       min="0"
                       step="0.1"
@@ -849,9 +849,9 @@
               <!-- Search and filters -->
               <div class="px-3 py-2 bg-[var(--color-midnight)] flex flex-col md:flex-row gap-2">
                 <div class="flex-grow">
-                  <label for="search-input-{requestStep.id}" class="sr-only">Search in responses</label>
+                  <label for="search-input-{requestStep.stepAttributes.id}" class="sr-only">Search in responses</label>
                   <input
-                    id="search-input-{requestStep.id}"
+                    id="search-input-{requestStep.stepAttributes.id}"
                     type="text"
                     placeholder="Search in responses..."
                     class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-3 py-1.5 rounded text-sm"
@@ -860,9 +860,9 @@
                   />
                 </div>
                 <div class="w-full md:w-40">
-                  <label for="status-filter-{requestStep.id}" class="sr-only">Filter by status code</label>
+                  <label for="status-filter-{requestStep.stepAttributes.id}" class="sr-only">Filter by status code</label>
                   <select
-                    id="status-filter-{requestStep.id}"
+                    id="status-filter-{requestStep.stepAttributes.id}"
                     class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-3 py-1.5 rounded text-sm"
                     value={statusFilter}
                     on:change={handleStatusFilterChange}

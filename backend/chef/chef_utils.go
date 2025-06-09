@@ -1,6 +1,7 @@
 package chef
 
 import (
+	"Gleip/backend/gleipflow"
 	"encoding/base64"
 	"fmt"
 )
@@ -15,11 +16,10 @@ type ChefAction struct {
 
 // ChefStep represents a complete chef step with input, actions, and output
 type ChefStep struct {
-	ID             string       `json:"id"`
-	Name           string       `json:"name"`
-	InputVariable  string       `json:"inputVariable"`  // Name of the input variable
-	Actions        []ChefAction `json:"actions"`        // List of transformation actions
-	OutputVariable string       `json:"outputVariable"` // Name of the output variable
+	StepAttributes gleipflow.StepAttributes `json:"stepAttributes"`
+	InputVariable  string                   `json:"inputVariable"`  // Name of the input variable
+	Actions        []ChefAction             `json:"actions"`        // List of transformation actions
+	OutputVariable string                   `json:"outputVariable"` // Name of the output variable
 }
 
 // ExecuteChefStep executes all actions in sequence and returns the final result

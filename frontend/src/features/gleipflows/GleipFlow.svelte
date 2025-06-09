@@ -14,7 +14,6 @@
     activeGleipFlow,
     activeStepIndex, 
     isExecuting,
-    expandedStepIndices,
     loadGleipFlows,
     createGleipFlow,
     deleteGleipFlow,
@@ -22,6 +21,7 @@
     addStep,
     deleteStep,
     updateStepSelection,
+    updateStepExpansion,
     pasteRequestAtPosition
   } from './store/gleipStore';
   import { getRequestFromClipboard, createRequestStepFromClipboard } from './utils/clipboardUtils';
@@ -70,7 +70,7 @@
     // Find the step that was updated
     const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
     const stepIndex = currentGleipFlow.steps.findIndex((s: any) => 
-      s.stepType === 'request' && s.requestStep && s.requestStep.id === stepId
+      s.stepType === 'request' && s.requestStep && s.requestStep.stepAttributes.id === stepId
     );
     
     console.log(`Updating step at index ${stepIndex} with ${fuzzResults?.length || 0} fuzz results`);
@@ -257,12 +257,17 @@
       
       if (success && request) {
         // Create a new request step from the clipboard data
-        const newStep = createRequestStepFromClipboard(request);
+        const newRequestStep = createRequestStepFromClipboard(request);
+        const newStep = {
+          requestStep: newRequestStep,
+          stepType: 'request',
+          selected: true
+        };
         
         // Update the request name to include index
         if (newStep.requestStep && $activeGleipFlowIndex !== null) {
           const requestCount = $gleipFlows[$activeGleipFlowIndex].steps.filter(s => s.stepType === 'request').length + 2;
-          newStep.requestStep.name = `Request ${requestCount}`;
+          newStep.requestStep.stepAttributes.name = `Request ${requestCount}`;
         }
         
         // Create a deep copy of the current gleip flow
@@ -308,24 +313,69 @@
   }
 
   // Toggle step expansion
-  function handleToggleExpand(event: CustomEvent) {
+  async function handleToggleExpand(event: CustomEvent) {
     const { stepIndex } = event.detail;
     
-    // Adjust index to account for the fake variables step
-    const actualIndex = stepIndex > 0 ? stepIndex - 1 : null;
-    
-    if ($expandedStepIndices.has(stepIndex)) {
-      const newSet = new Set($expandedStepIndices);
-      newSet.delete(stepIndex);
-      expandedStepIndices.set(newSet);
-    } else {
-      const newSet = new Set($expandedStepIndices);
-      newSet.add(stepIndex);
-      expandedStepIndices.set(newSet);
-      if (actualIndex !== null) {
-        activeStepIndex.set(actualIndex);
-      }
+    // Handle variables step (index 0) - use special index -1 for backend
+    if (stepIndex === 0) {
+      if ($activeGleipFlowIndex === null) return;
+      const currentFlow = $gleipFlows[$activeGleipFlowIndex];
+      if (!currentFlow) return;
+      
+      const currentExpanded = currentFlow.isVariableStepExpanded || false;
+      await updateStepExpansion(-1, !currentExpanded);
+      return;
     }
+    
+    // Adjust index to account for the fake variables step
+    const actualIndex = stepIndex - 1;
+    
+    // Get current expansion state from the step data
+    if ($activeGleipFlowIndex === null) return;
+    const currentFlow = $gleipFlows[$activeGleipFlowIndex];
+    if (!currentFlow || actualIndex >= currentFlow.steps.length) return;
+    
+    const step = currentFlow.steps[actualIndex];
+    let currentExpanded = false;
+    
+    // Get current expanded state based on step type
+    if (step.stepType === 'request' && step.requestStep) {
+      currentExpanded = step.requestStep.stepAttributes.isExpanded;
+    } else if (step.stepType === 'script' && step.scriptStep) {
+      currentExpanded = step.scriptStep.stepAttributes.isExpanded;
+    } else if (step.stepType === 'chef' && step.chefStep) {
+      currentExpanded = step.chefStep.stepAttributes.isExpanded;
+    }
+    
+    // Toggle the expansion state
+    await updateStepExpansion(actualIndex, !currentExpanded);
+    
+    // Set the step as active when expanding
+    if (!currentExpanded) {
+      activeStepIndex.set(actualIndex);
+    }
+  }
+
+  // Helper function to get expansion state of a step
+  function getStepExpansionState(step: GleipFlowStep, index: number): boolean {
+    // Variables step (index 0) uses the flow's isVariableStepExpanded field
+    if (index === 0 && step.stepType === 'variables') {
+      if ($activeGleipFlowIndex !== null && $gleipFlows[$activeGleipFlowIndex]) {
+        return $gleipFlows[$activeGleipFlowIndex].isVariableStepExpanded || false;
+      }
+      return false;
+    }
+    
+    // For other steps, check the stepAttributes
+    if (step.stepType === 'request' && step.requestStep) {
+      return step.requestStep.stepAttributes.isExpanded;
+    } else if (step.stepType === 'script' && step.scriptStep) {
+      return step.scriptStep.stepAttributes.isExpanded;
+    } else if (step.stepType === 'chef' && step.chefStep) {
+      return step.chefStep.stepAttributes.isExpanded;
+    }
+    
+    return false;
   }
 
   // Update step selection
@@ -427,8 +477,8 @@
   function getStepExecutionResult(step: GleipFlowStep) {
     if (!step || !$activeGleipFlow) return undefined;
     
-    const stepId = step.stepType === 'request' ? step.requestStep?.id : 
-                 step.stepType === 'script' ? step.scriptStep?.id : 
+    const stepId = step.stepType === 'request' ? step.requestStep?.stepAttributes.id : 
+                 step.stepType === 'script' ? step.scriptStep?.stepAttributes.id : 
                  $activeGleipFlow.id + '-variables';
     
     if (stepId && $activeGleipFlow.executionResults) {
@@ -531,10 +581,10 @@
             await updateGleipFlow(updatedGleipFlow);
           }
           
-          console.log("Starting fuzzing for step ID:", step.requestStep.id);
+          console.log("Starting fuzzing for step ID:", step.requestStep.stepAttributes.id);
           
           // Call the backend to start fuzzing
-          await StartFuzzing(currentGleipFlow.id, step.requestStep.id);
+          await StartFuzzing(currentGleipFlow.id, step.requestStep.stepAttributes.id);
           
           // Show success notification
           showNotification('Fuzzing completed successfully');
@@ -698,12 +748,6 @@
       // Set the new step as active
       activeStepIndex.set(position);
       
-      // Expand the new step (account for variables step in UI)
-      const uiStepIndex = position + 1;
-      const newExpandedSet = new Set($expandedStepIndices);
-      newExpandedSet.add(uiStepIndex);
-      expandedStepIndices.set(newExpandedSet);
-      
       return newStep;
     } catch (error) {
       console.error('Failed to insert step:', error);
@@ -718,12 +762,6 @@
       const result = await pasteRequestAtPosition(position);
       
       if (result.success) {
-        // Expand the new step (account for variables step in UI)
-        const uiStepIndex = position + 1;
-        const newExpandedSet = new Set($expandedStepIndices);
-        newExpandedSet.add(uiStepIndex);
-        expandedStepIndices.set(newExpandedSet);
-        
         showNotification(result.message);
       } else {
         showNotification(result.message);
@@ -833,7 +871,7 @@
               <GleipStepCard
                 {step}
                 stepIndex={index}
-                isExpanded={$expandedStepIndices.has(index)}
+                isExpanded={getStepExpansionState(step, index)}
                 executionResult={getStepExecutionResult(step)}
                 isExecuting={$isExecuting}
                 gleipFlowID={$gleipFlows[$activeGleipFlowIndex].id}

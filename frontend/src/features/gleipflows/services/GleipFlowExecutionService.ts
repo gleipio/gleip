@@ -45,7 +45,7 @@ export class GleipFlowExecutionService {
               
               // Find the corresponding step
               const stepIndex = currentGleipFlows[currentActiveIndex].steps.findIndex(step => 
-                (step.stepType === 'request' && step.requestStep && step.requestStep.id === result.stepId)
+                (step.stepType === 'request' && step.requestStep && step.requestStep.stepAttributes.id === result.stepId)
               );
               
               if (stepIndex !== -1 && currentGleipFlows[currentActiveIndex].steps[stepIndex].requestStep) {
@@ -111,8 +111,8 @@ export class GleipFlowExecutionService {
       // Only clear results for steps being executed in this run
       const selectedStepIds = gleip.steps
         .filter(step => step.selected)
-        .map(step => step.stepType === 'request' ? step.requestStep?.id : 
-                     step.stepType === 'script' ? step.scriptStep?.id : 
+        .map(step => step.stepType === 'request' ? step.requestStep?.stepAttributes.id : 
+                     step.stepType === 'script' ? step.scriptStep?.stepAttributes.id : 
                      gleip.id + '-variables')
         .filter(id => id !== undefined);
         

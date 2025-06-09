@@ -2,6 +2,7 @@ package backend
 
 import (
 	"Gleip/backend/chef"
+	"Gleip/backend/gleipflow"
 	"Gleip/backend/network"
 	"encoding/json"
 	"fmt"
@@ -100,7 +101,7 @@ func (a *App) StartFuzzing(gleipFlowID string, stepID string) error {
 	// Find the request step
 	var requestStep *RequestStep
 	for i, step := range gleipFlow.Steps {
-		if step.StepType == "request" && step.RequestStep != nil && step.RequestStep.ID == stepID {
+		if step.StepType == "request" && step.RequestStep != nil && step.RequestStep.StepAttributes.ID == stepID {
 			requestStep = step.RequestStep
 
 			// Make sure only this step is selected for execution
@@ -444,8 +445,11 @@ func (a *App) CopyRequestToCurrentFlow(requestID string, collectionID ...string)
 			StepType: "request",
 			Selected: true,
 			RequestStep: &RequestStep{
-				ID:   uuid.New().String(),
-				Name: fmt.Sprintf("Request %d", requestCount+1),
+				StepAttributes: gleipflow.StepAttributes{
+					ID:         uuid.New().String(),
+					Name:       fmt.Sprintf("Request %d", requestCount+1),
+					IsExpanded: true,
+				},
 				Request: network.HTTPRequest{
 					Host: apiRequest.Host,
 					Dump: rawRequest,
@@ -512,8 +516,11 @@ func (a *App) CopyRequestToCurrentFlow(requestID string, collectionID ...string)
 			StepType: "request",
 			Selected: true,
 			RequestStep: &RequestStep{
-				ID:                       uuid.New().String(),
-				Name:                     fmt.Sprintf("Request %d", requestCount+1),
+				StepAttributes: gleipflow.StepAttributes{
+					ID:         uuid.New().String(),
+					Name:       fmt.Sprintf("Request %d", requestCount+1),
+					IsExpanded: true,
+				},
 				Request:                  transaction.Request,
 				VariableExtracts:         []VariableExtract{},
 				RecalculateContentLength: true,
@@ -648,8 +655,11 @@ func (a *App) AddStepToGleipFlowAtPosition(gleipFlowID string, stepType string, 
 		}
 
 		newStep.RequestStep = &RequestStep{
-			ID:               uuid.New().String(),
-			Name:             fmt.Sprintf("Request %d", requestCount+1),
+			StepAttributes: gleipflow.StepAttributes{
+				ID:         uuid.New().String(),
+				Name:       fmt.Sprintf("Request %d", requestCount+1),
+				IsExpanded: true,
+			},
 			VariableExtracts: []VariableExtract{},
 			Request: network.HTTPRequest{
 				Dump: "GET / HTTP/1.1\r\nHost: gleip.io\r\n\r\n",
@@ -669,8 +679,11 @@ func (a *App) AddStepToGleipFlowAtPosition(gleipFlowID string, stepType string, 
 		}
 
 		newStep.ScriptStep = &ScriptStep{
-			ID:      uuid.New().String(),
-			Name:    fmt.Sprintf("Script %d", scriptCount+1),
+			StepAttributes: gleipflow.StepAttributes{
+				ID:         uuid.New().String(),
+				Name:       fmt.Sprintf("Script %d", scriptCount+1),
+				IsExpanded: true,
+			},
 			Content: "// Write your JavaScript code here\n// Examples:\n// console.log(\"Hello world\");\n// setVar(\"myVar\", \"myValue\");\n// const value = getVar(\"anotherVar\");\n",
 		}
 	} else if stepType == "chef" {
@@ -683,8 +696,11 @@ func (a *App) AddStepToGleipFlowAtPosition(gleipFlowID string, stepType string, 
 		}
 
 		newStep.ChefStep = &chef.ChefStep{
-			ID:             uuid.New().String(),
-			Name:           fmt.Sprintf("Chef %d", chefCount+1),
+			StepAttributes: gleipflow.StepAttributes{
+				ID:         uuid.New().String(),
+				Name:       fmt.Sprintf("Chef %d", chefCount+1),
+				IsExpanded: true,
+			},
 			InputVariable:  "",
 			Actions:        []chef.ChefAction{},
 			OutputVariable: "",
@@ -753,8 +769,11 @@ func (a *App) DuplicateGleipFlow(originalID string) (GleipFlow, error) {
 		if step.RequestStep != nil {
 			// Deep copy request step
 			newStep.RequestStep = &RequestStep{
-				ID:                       uuid.New().String(), // New ID for the duplicated step
-				Name:                     step.RequestStep.Name,
+				StepAttributes: gleipflow.StepAttributes{
+					ID:         uuid.New().String(), // New ID for the duplicated step
+					Name:       step.RequestStep.StepAttributes.Name,
+					IsExpanded: step.RequestStep.StepAttributes.IsExpanded,
+				},
 				Request:                  step.RequestStep.Request, // HTTPRequest can be copied directly
 				VariableExtracts:         make([]VariableExtract, len(step.RequestStep.VariableExtracts)),
 				RecalculateContentLength: step.RequestStep.RecalculateContentLength,
@@ -778,8 +797,11 @@ func (a *App) DuplicateGleipFlow(originalID string) (GleipFlow, error) {
 		if step.ScriptStep != nil {
 			// Deep copy script step
 			newStep.ScriptStep = &ScriptStep{
-				ID:      uuid.New().String(), // New ID for the duplicated step
-				Name:    step.ScriptStep.Name,
+				StepAttributes: gleipflow.StepAttributes{
+					ID:         uuid.New().String(), // New ID for the duplicated step
+					Name:       step.ScriptStep.StepAttributes.Name,
+					IsExpanded: step.ScriptStep.StepAttributes.IsExpanded,
+				},
 				Content: step.ScriptStep.Content,
 			}
 		}
@@ -787,8 +809,11 @@ func (a *App) DuplicateGleipFlow(originalID string) (GleipFlow, error) {
 		if step.ChefStep != nil {
 			// Deep copy chef step
 			newStep.ChefStep = &chef.ChefStep{
-				ID:             uuid.New().String(), // New ID for the duplicated step
-				Name:           step.ChefStep.Name,
+				StepAttributes: gleipflow.StepAttributes{
+					ID:         uuid.New().String(), // New ID for the duplicated step
+					Name:       step.ChefStep.StepAttributes.Name,
+					IsExpanded: step.ChefStep.StepAttributes.IsExpanded,
+				},
 				InputVariable:  step.ChefStep.InputVariable,
 				OutputVariable: step.ChefStep.OutputVariable,
 				Actions:        make([]chef.ChefAction, len(step.ChefStep.Actions)),

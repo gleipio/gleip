@@ -197,9 +197,9 @@
             text-sm font-medium text-gray-100
           `}>
             {
-              step.stepType === 'request' && step.requestStep ? step.requestStep.name : 
-              step.stepType === 'script' && step.scriptStep ? step.scriptStep.name :
-              step.stepType === 'chef' && step.chefStep ? step.chefStep.name :
+              step.stepType === 'request' && step.requestStep ? step.requestStep.stepAttributes.name : 
+              step.stepType === 'script' && step.scriptStep ? step.scriptStep.stepAttributes.name :
+              step.stepType === 'chef' && step.chefStep ? step.chefStep.stepAttributes.name :
               step.stepType === 'variables' ? 'Variables' :
               'Unnamed Step'
             }
@@ -251,9 +251,9 @@
             </span>
             <span class="text-sm font-medium text-gray-50">
               {
-                step.stepType === 'request' && step.requestStep ? step.requestStep.name : 
-                step.stepType === 'script' && step.scriptStep ? step.scriptStep.name :
-                step.stepType === 'chef' && step.chefStep ? step.chefStep.name :
+                step.stepType === 'request' && step.requestStep ? step.requestStep.stepAttributes.name : 
+                step.stepType === 'script' && step.scriptStep ? step.scriptStep.stepAttributes.name :
+                step.stepType === 'chef' && step.chefStep ? step.chefStep.stepAttributes.name :
                 step.stepType === 'variables' ? 'Variables' :
                 'Unnamed Step'
               }

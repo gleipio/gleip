@@ -30,6 +30,15 @@ type FuzzSettings struct {
 	FuzzResults     []FuzzResult `json:"fuzzResults"`     // Results of fuzzing
 }
 
+// GleipFlowStep represents a step in a request gleip
+type GleipFlowStep struct {
+	StepType    string         `json:"stepType"` // "request", "script", or "chef"
+	RequestStep *RequestStep   `json:"requestStep,omitempty"`
+	ScriptStep  *ScriptStep    `json:"scriptStep,omitempty"`
+	ChefStep    *chef.ChefStep `json:"chefStep,omitempty"`
+	Selected    bool           `json:"selected,omitempty"` // Flag for execution selection
+}
+
 // RequestStep represents an HTTP request step in a request gleip
 type RequestStep struct {
 	ID                       string               `json:"id"`
@@ -75,15 +84,6 @@ func (r RequestStep) GetID() string {
 // GetName returns the name of a RequestStep
 func (r RequestStep) GetName() string {
 	return r.Name
-}
-
-// GleipFlowStep represents a step in a request gleip
-type GleipFlowStep struct {
-	StepType    string         `json:"stepType"` // "request", "script", or "chef"
-	RequestStep *RequestStep   `json:"requestStep,omitempty"`
-	ScriptStep  *ScriptStep    `json:"scriptStep,omitempty"`
-	ChefStep    *chef.ChefStep `json:"chefStep,omitempty"`
-	Selected    bool           `json:"selected,omitempty"` // Flag for execution selection
 }
 
 // GleipFlow represents a sequence of HTTP requests and scripts

@@ -6,7 +6,6 @@
   import type { ChefStep, ExecutionResult } from '../types';
   
   export let executionResult: ExecutionResult | undefined = undefined;
-  export let isExecuting: boolean = false;
   export let stepIndex: number;
   export let isExpanded: boolean = false;
   
@@ -397,9 +396,9 @@
             
             {#if action.preview}
               <div class="mt-2">
-                <label class="text-xs text-gray-400">
+                <h3 class="text-xs text-gray-400">
                   {index === 0 ? 'Preview (from input):' : `Preview (from action ${index}):`}
-                </label>
+                </h3>
                 <div class="mt-1 p-2 bg-gray-900 rounded text-xs text-gray-300 font-mono max-h-20 overflow-y-auto">
                   {action.preview}
                 </div>

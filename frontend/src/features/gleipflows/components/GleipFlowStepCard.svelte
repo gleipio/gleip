@@ -296,7 +296,6 @@
         {:else if step.stepType === 'chef'}
           <ChefStep 
             executionResult={executionResult}
-            isExecuting={isExecuting}
             stepIndex={stepIndex > 0 ? stepIndex - 1 : 0}
             availableVariables={availableVariables}
             variableValues={variableValues}
@@ -343,7 +342,6 @@
       {:else if step.stepType === 'chef'}
         <ChefStep 
           executionResult={executionResult}
-          isExecuting={isExecuting}
           stepIndex={stepIndex > 0 ? stepIndex - 1 : 0}
           availableVariables={availableVariables}
           variableValues={variableValues}

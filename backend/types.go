@@ -185,3 +185,31 @@ func NewExecutionContext() *ExecutionContext {
 		Results:   []ExecutionResult{},
 	}
 }
+
+// MergeExecutionResultsIntoFlowVariables merges variables from execution results into the flow's variables map
+func (gleipFlow *GleipFlow) MergeExecutionResultsIntoFlowVariables() bool {
+	if gleipFlow.ExecutionResults == nil {
+		return false
+	}
+
+	hasChanges := false
+	if gleipFlow.Variables == nil {
+		gleipFlow.Variables = make(map[string]string)
+	}
+
+	// Merge variables from all execution results
+	for _, result := range gleipFlow.ExecutionResults {
+		if result.Variables != nil {
+			for varName, varValue := range result.Variables {
+				oldValue, exists := gleipFlow.Variables[varName]
+				if !exists || oldValue != varValue {
+					gleipFlow.Variables[varName] = varValue
+					hasChanges = true
+					fmt.Printf("MERGED VARIABLE INTO FLOW: %s = %s [from step: %s]\n", varName, varValue, result.StepName)
+				}
+			}
+		}
+	}
+
+	return hasChanges
+}

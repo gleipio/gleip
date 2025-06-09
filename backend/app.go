@@ -392,6 +392,10 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
 			cachedFlow.ExecutionResults = results
+			// Merge execution result variables into flow variables
+			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
+				fmt.Printf("Merged execution result variables into cached flow %s\n", gleipFlowID)
+			}
 		}
 		a.gleipFlowsMutex.Unlock()
 
@@ -401,6 +405,10 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
 					projectFlow.ExecutionResults = results
+					// Merge execution result variables into flow variables
+					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
+						fmt.Printf("Merged execution result variables into project flow %s\n", gleipFlowID)
+					}
 					break
 				}
 			}
@@ -455,6 +463,10 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
 			cachedFlow.ExecutionResults = results
+			// Merge execution result variables into flow variables
+			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
+				fmt.Printf("Merged execution result variables into cached flow %s (single step)\n", gleipFlowID)
+			}
 		}
 		a.gleipFlowsMutex.Unlock()
 
@@ -463,6 +475,10 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
 					projectFlow.ExecutionResults = results
+					// Merge execution result variables into flow variables
+					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
+						fmt.Printf("Merged execution result variables into project flow %s (single step)\n", gleipFlowID)
+					}
 					break
 				}
 			}

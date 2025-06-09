@@ -2,7 +2,7 @@ import { get } from 'svelte/store';
 import { ExecuteGleipFlow, ExecuteSingleStep } from '../../../../wailsjs/go/backend/App';
 import { EventsOn } from '../../../../wailsjs/runtime/runtime';
 import type { ExecutionResult, StepExecutionEvent } from '../types';
-import { gleipFlows, activeGleipFlowIndex, isExecuting, saveGleipFlow } from '../store/gleipStore';
+import { gleipFlows, activeGleipFlowIndex, isExecuting, saveGleipFlow, loadGleipFlows } from '../store/gleipStore';
 
 /**
  * Service for handling gleip execution
@@ -140,6 +140,10 @@ export class GleipFlowExecutionService {
           // Force a UI update after receiving the final results
           gleipFlows.set([...get(gleipFlows)]);
         }
+        
+        // Reload flow data from backend to sync merged variables
+        console.log("Reloading flow data to sync merged variables from backend");
+        await loadGleipFlows();
       } catch (error) {
         console.error("Error during GleipFlow execution:", error);
         // Ensure we still try to update the UI even if there was an error
@@ -201,6 +205,10 @@ export class GleipFlowExecutionService {
         console.log("Processing final single step execution results");
         this.mergeExecutionResults(results);
       }
+      
+      // Reload flow data from backend to sync merged variables
+      console.log("Reloading flow data to sync merged variables from backend (single step)");
+      await loadGleipFlows();
       
       isExecuting.set(false);
       return true;

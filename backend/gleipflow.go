@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -893,11 +894,14 @@ func (e *GleipFlowExecutor) GetAvailableVariablesForStep(gleipFlow *GleipFlow, s
 		}
 	}
 
-	// Convert map keys to slice
+	// Convert map keys to slice and sort for deterministic order
 	var result []string
 	for varName := range availableVars {
 		result = append(result, varName)
 	}
+
+	// Sort to ensure deterministic ordering
+	sort.Strings(result)
 
 	return result
 }

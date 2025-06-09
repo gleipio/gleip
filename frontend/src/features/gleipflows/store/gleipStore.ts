@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow } from '../../../../wailsjs/go/backend/App';
+import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep } from '../../../../wailsjs/go/backend/App';
 import { backend } from '../../../../wailsjs/go/models';
 import type { GleipFlow, ExecutionResult, GleipFlowStep } from '../types';
 import { generateRawHttpRequest } from '../utils/httpUtils';
@@ -351,77 +351,56 @@ export const updateChefStep = async (stepIndex: number, updates: any) => {
   
   if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
   
-  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
-  const step = gleipFlow.steps[stepIndex];
+  const gleipFlow = $gleipFlows[$activeGleipFlowIndex];
   
+  if (stepIndex < 0 || stepIndex >= gleipFlow.steps.length) return false;
+  
+  const step = gleipFlow.steps[stepIndex];
   if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
   
-  // Update the chef step
-  step.chefStep = { ...step.chefStep, ...updates };
-  
-  // Update store
-  gleipFlows.update($flows => {
-    const updated = [...$flows];
-    updated[$activeGleipFlowIndex] = gleipFlow;
-    return updated;
-  });
-  
-  // Save to backend
-  return await saveGleipFlow(gleipFlow);
+  try {
+    // Call backend to update the chef step
+    await UpdateChefStep(
+      gleipFlow.id, 
+      stepIndex, 
+      updates.inputVariable || step.chefStep.inputVariable || '',
+      updates.outputVariable || step.chefStep.outputVariable || '',
+      updates.name || step.chefStep.name || ''
+    );
+    
+    // Reload flows from backend to get updated state
+    await loadGleipFlows();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to update chef step:', error);
+    return false;
+  }
 };
 
 export const addChefAction = async (stepIndex: number) => {
-  console.log('addChefAction called with stepIndex:', stepIndex);
-  
   const $activeGleipFlowIndex = get(activeGleipFlowIndex);
   const $gleipFlows = get(gleipFlows);
-  
-  console.log('activeGleipFlowIndex:', $activeGleipFlowIndex);
-  console.log('gleipFlows length:', $gleipFlows.length);
   
   if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) {
     console.log('Invalid gleipFlowIndex');
     return false;
   }
   
-  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
-  console.log('gleipFlow.steps:', gleipFlow.steps);
-  console.log('gleipFlow.steps.length:', gleipFlow.steps.length);
+  const gleipFlow = $gleipFlows[$activeGleipFlowIndex];
   
-  // Log each step with its index and type
-  gleipFlow.steps.forEach((step, idx) => {
-    console.log(`Step ${idx}:`, step.stepType, step);
-  });
-  
-  const step = gleipFlow.steps[stepIndex];
-  
-  console.log('step:', step);
-  console.log('step.stepType:', step?.stepType);
-  console.log('step.chefStep:', step?.chefStep);
-  
-  if (!step || step.stepType !== 'chef' || !step.chefStep) {
-    console.log('Invalid step or not a chef step');
+  try {
+    // Call backend to add the chef action
+    await AddChefAction(gleipFlow.id, stepIndex);
+    
+    // Reload flows from backend to get updated state
+    await loadGleipFlows();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to add chef action:', error);
     return false;
   }
-  
-  const newAction = {
-    id: `action_${Date.now()}`,
-    actionType: '',
-    options: {},
-    preview: ''
-  };
-  
-  step.chefStep.actions = [...step.chefStep.actions, newAction];
-  
-  // Save to backend
-  const success = await saveGleipFlow(gleipFlow);
-  
-  // Reload from backend (source of truth)
-  if (success) {
-    await loadGleipFlows();
-  }
-  
-  return success;
 };
 
 export const removeChefAction = async (stepIndex: number, actionIndex: number) => {
@@ -430,22 +409,20 @@ export const removeChefAction = async (stepIndex: number, actionIndex: number) =
   
   if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
   
-  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
-  const step = gleipFlow.steps[stepIndex];
+  const gleipFlow = $gleipFlows[$activeGleipFlowIndex];
   
-  if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
-  
-  step.chefStep.actions = step.chefStep.actions.filter((_, i) => i !== actionIndex);
-  
-  // Save to backend
-  const success = await saveGleipFlow(gleipFlow);
-  
-  // Reload from backend (source of truth)
-  if (success) {
+  try {
+    // Call backend to remove the chef action
+    await RemoveChefAction(gleipFlow.id, stepIndex, actionIndex);
+    
+    // Reload flows from backend to get updated state
     await loadGleipFlows();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to remove chef action:', error);
+    return false;
   }
-  
-  return success;
 };
 
 export const updateChefAction = async (stepIndex: number, actionIndex: number, updates: any) => {
@@ -454,26 +431,30 @@ export const updateChefAction = async (stepIndex: number, actionIndex: number, u
   
   if ($activeGleipFlowIndex === null || $activeGleipFlowIndex >= $gleipFlows.length) return false;
   
-  const gleipFlow = { ...$gleipFlows[$activeGleipFlowIndex] };
-  const step = gleipFlow.steps[stepIndex];
+  const gleipFlow = $gleipFlows[$activeGleipFlowIndex];
   
+  if (stepIndex < 0 || stepIndex >= gleipFlow.steps.length) return false;
+  
+  const step = gleipFlow.steps[stepIndex];
   if (!step || step.stepType !== 'chef' || !step.chefStep) return false;
   
-  if (actionIndex >= 0 && actionIndex < step.chefStep.actions.length) {
-    step.chefStep.actions[actionIndex] = { ...step.chefStep.actions[actionIndex], ...updates };
-    
-    // Save to backend
-    const success = await saveGleipFlow(gleipFlow);
-    
-    // Reload from backend (source of truth)
-    if (success) {
-      await loadGleipFlows();
-    }
-    
-    return success;
-  }
+  if (actionIndex < 0 || actionIndex >= step.chefStep.actions.length) return false;
   
-  return false;
+  try {
+    // Merge updates with existing action
+    const updatedAction = { ...step.chefStep.actions[actionIndex], ...updates };
+    
+    // Call backend to update the chef action
+    await UpdateChefAction(gleipFlow.id, stepIndex, actionIndex, updatedAction);
+    
+    // Reload flows from backend to get updated state
+    await loadGleipFlows();
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to update chef action:', error);
+    return false;
+  }
 };
 
 // Helper Functions

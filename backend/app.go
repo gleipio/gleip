@@ -895,6 +895,121 @@ func (a *App) GetAvailableVariableValuesForStep(gleipFlowID string, stepIndex in
 	return a.gleipFlowExecutor.GetAvailableVariableValuesForStep(gleipFlow, stepIndex), nil
 }
 
+// AddChefAction adds a new action to a chef step
+func (a *App) AddChefAction(gleipFlowID string, stepIndex int) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	step := &gleipFlow.Steps[stepIndex]
+	if step.StepType != "chef" || step.ChefStep == nil {
+		return fmt.Errorf("step at index %d is not a chef step", stepIndex)
+	}
+
+	// Create new action
+	newAction := chef.ChefAction{
+		ID:         fmt.Sprintf("action_%d", time.Now().UnixNano()),
+		ActionType: "",
+		Options:    make(map[string]interface{}),
+		Preview:    "",
+	}
+
+	// Add action to the step
+	step.ChefStep.Actions = append(step.ChefStep.Actions, newAction)
+
+	// Update and persist the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// RemoveChefAction removes an action from a chef step
+func (a *App) RemoveChefAction(gleipFlowID string, stepIndex int, actionIndex int) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	step := &gleipFlow.Steps[stepIndex]
+	if step.StepType != "chef" || step.ChefStep == nil {
+		return fmt.Errorf("step at index %d is not a chef step", stepIndex)
+	}
+
+	if actionIndex < 0 || actionIndex >= len(step.ChefStep.Actions) {
+		return fmt.Errorf("invalid action index: %d", actionIndex)
+	}
+
+	// Remove action from slice
+	step.ChefStep.Actions = append(
+		step.ChefStep.Actions[:actionIndex],
+		step.ChefStep.Actions[actionIndex+1:]...,
+	)
+
+	// Update and persist the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// UpdateChefAction updates an existing action in a chef step
+func (a *App) UpdateChefAction(gleipFlowID string, stepIndex int, actionIndex int, action chef.ChefAction) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	step := &gleipFlow.Steps[stepIndex]
+	if step.StepType != "chef" || step.ChefStep == nil {
+		return fmt.Errorf("step at index %d is not a chef step", stepIndex)
+	}
+
+	if actionIndex < 0 || actionIndex >= len(step.ChefStep.Actions) {
+		return fmt.Errorf("invalid action index: %d", actionIndex)
+	}
+
+	// Update the action
+	step.ChefStep.Actions[actionIndex] = action
+
+	// Update and persist the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// UpdateChefStep updates a chef step's properties
+func (a *App) UpdateChefStep(gleipFlowID string, stepIndex int, inputVariable string, outputVariable string, name string) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index: %d", stepIndex)
+	}
+
+	step := &gleipFlow.Steps[stepIndex]
+	if step.StepType != "chef" || step.ChefStep == nil {
+		return fmt.Errorf("step at index %d is not a chef step", stepIndex)
+	}
+
+	// Update the chef step properties
+	if name != "" {
+		step.ChefStep.Name = name
+	}
+	step.ChefStep.InputVariable = inputVariable
+	step.ChefStep.OutputVariable = outputVariable
+
+	// Update and persist the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
 // UpdateGleipFlow updates a gleipFlow and automatically saves
 func (a *App) UpdateGleipFlow(gleipFlow GleipFlow) error {
 	fmt.Printf("DEBUG: UpdateGleipFlow called with flow ID: %s, name: %s\n", gleipFlow.ID, gleipFlow.Name)

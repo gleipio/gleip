@@ -81,6 +81,7 @@ func (a *App) CheckForUpdates() (*UpdateInfo, error) {
 	// Clean up the version strings (remove 'v' prefix if present)
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
 	currentVersion := strings.TrimSuffix(AppVersion, "-alpha") // Remove any -alpha suffix
+	currentVersion = strings.TrimPrefix(currentVersion, "v")
 
 	// Find the macOS asset
 	var downloadURL string
@@ -448,13 +449,6 @@ func findAppBundle(dirPath string) (string, error) {
 	}
 
 	return appPath, nil
-}
-
-// launchApp launches the application at the given path
-func launchApp(appPath string) error {
-	// Use the open command to launch the app
-	cmd := exec.Command("open", appPath)
-	return cmd.Start()
 }
 
 // extractVersionFromPath extracts version from app path

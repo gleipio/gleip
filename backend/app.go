@@ -715,12 +715,6 @@ func (a *App) GetSelectedAPICollection() string {
 	return a.currentProject.SelectedAPICollection
 }
 
-// Add a function to the App struct that acts as a callback for new transactions
-func (a *App) handleNewTransaction(transaction network.HTTPTransaction) {
-	// Request auto-save with request history marked as dirty
-	a.requestAutoSaveWithComponent("request_history")
-}
-
 // SetSelectedGleipFlowID sets the active GleipFlow ID in the project
 func (a *App) SetSelectedGleipFlowID(gleipFlowID string) error {
 	// Update the cache first

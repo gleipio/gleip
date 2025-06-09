@@ -830,16 +830,6 @@
           {#each getUISteps($gleipFlows[$activeGleipFlowIndex]) as step, index}
             <!-- Step card with relative positioning for plus button placement -->
             <div class="flex-shrink-0 relative">
-              <!-- Add button before the first request step -->
-              {#if index === 1}
-                <AddStepButtons
-                  position="left" 
-                  stepPosition={0} 
-                  on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
-                  on:paste={(e) => pasteRequestAt(e.detail.position)}
-                />
-              {/if}
-              
               <GleipStepCard
                 {step}
                 stepIndex={index}
@@ -858,14 +848,12 @@
               />
               
               <!-- Add button after this step -->
-              {#if index > 0}
-                <AddStepButtons 
-                  position="right" 
-                  stepPosition={index} 
-                  on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
-                  on:paste={(e) => pasteRequestAt(e.detail.position)}
-                />
-              {/if}
+              <AddStepButtons 
+                position="right" 
+                stepPosition={index} 
+                on:addStep={(e) => insertStepAt(e.detail.position, e.detail.stepType)}
+                on:paste={(e) => pasteRequestAt(e.detail.position)}
+              />
             </div>
           {/each}
         </div>

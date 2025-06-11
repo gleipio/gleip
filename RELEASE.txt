@@ -1,2 +1,7 @@
+2025.06.11
+🐛 Bug Fixing
+- Telemetry now initializes properly
+
+2025.06.09
 ✨ New Features
 Steps can now be added contextually between other steps

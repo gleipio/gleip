@@ -292,19 +292,14 @@ func runCommand(command string) {
 	posthogAPIKey := os.Getenv("POSTHOG_API_KEY")
 	posthogEndpoint := os.Getenv("POSTHOG_ENDPOINT")
 
-	// Use default endpoint if not specified
-	if posthogEndpoint == "" {
-		posthogEndpoint = "https://eu.i.posthog.com"
-	}
-
 	// If no API key is provided, telemetry will be disabled at runtime
-	if posthogAPIKey == "" {
-		fmt.Println("⚠️  No POSTHOG_API_KEY provided - telemetry will be disabled")
+	if posthogAPIKey == "" || posthogEndpoint == "" {
+		fmt.Println("⚠️  No POSTHOG_API_KEY or POSTHOG_ENDPOINT provided - telemetry will be disabled")
 		posthogAPIKey = "disabled" // Placeholder to indicate disabled state
 	}
 
 	// Build ldflags with version and PostHog configuration
-	ldflags := fmt.Sprintf("-X 'Gleip/backend.AppVersion=%s' -X 'Gleip/backend.PostHogAPIKey=%s' -X 'Gleip/backend.PostHogEndpoint=%s'",
+	ldflags := fmt.Sprintf(`-X "Gleip/backend.AppVersion=%s" -X "Gleip/backend.PostHogAPIKey=%s" -X "Gleip/backend.PostHogEndpoint=%s"`,
 		version, posthogAPIKey, posthogEndpoint)
 
 	// Build or dev

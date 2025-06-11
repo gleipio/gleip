@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"Gleip/backend/paths"
 	"fmt"
 	"strings"
 
@@ -11,8 +10,8 @@ import (
 
 // These variables will be injected at compile time via ldflags
 var (
-	PostHogAPIKey   = ""                                        // Injected at compile time - no default for security
-	PostHogEndpoint = paths.GlobalURLs.Services.PostHogEndpoint // Use centralized endpoint from paths
+	PostHogAPIKey   = "" // Injected at compile time - no default for security
+	PostHogEndpoint = "" // Injected at compile time via ldflags
 )
 
 var (
@@ -50,30 +49,31 @@ func InitTelemetry() {
 		var err error
 		client, err = posthog.NewWithConfig(PostHogAPIKey, config)
 		if err != nil {
-			fmt.Printf("Failed to initialize telemetry client: %v\n", err)
 			return
 		}
 
-		// Use the stored userID from settings if available, otherwise create a new one
+		// Set user ID if empty
 		if gleipSettings.UserID == "" {
 			gleipSettings.UserID = uuid.New().String()
-			// Save the new userID
 			settingsController := NewSettingsController()
 			if err := settingsController.UpdateSettings(gleipSettings); err != nil {
 				fmt.Printf("Failed to save user ID to settings: %v\n", err)
 			}
 		}
+
+		// Set the global userID variable
 		userID = gleipSettings.UserID
 
-		// Track app launch
-		TrackAppLaunch()
+		fmt.Println("Telemetry initialized successfully")
 	}
 }
 
 // ShutdownTelemetry gracefully shuts down the telemetry client
 func ShutdownTelemetry() {
 	if client != nil {
-		client.Close()
+		if err := client.Close(); err != nil {
+			fmt.Printf("DEBUG: Error closing telemetry client: %v\n", err)
+		}
 		client = nil
 	}
 }
@@ -109,12 +109,15 @@ func trackEvent(category, action string, properties map[string]interface{}) {
 	// Debug log
 	fmt.Printf("Track: %s, %s\n", eventName, userID)
 
-	// Send the event to PostHog
-	client.Enqueue(posthog.Capture{
+	// Queue the event
+	if err := client.Enqueue(posthog.Capture{
 		DistinctId: userID,
 		Event:      eventName,
 		Properties: props,
-	})
+	}); err != nil {
+		fmt.Printf("Failed to queue telemetry event: %v\n", err)
+		return
+	}
 }
 
 // TrackAppLaunch tracks when the app is launched

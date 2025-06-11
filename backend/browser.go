@@ -449,7 +449,11 @@ firefox-installer.exe /S /D=%~dp0
 	}
 
 	// Create user.js file with proxy settings
-	userJSContent := `// Proxy settings
+	userJSContent := `// Disable startup page
+user_pref("browser.startup.homepage", "about:blank");
+user_pref("network.captive-portal-service.enabled", false);
+user_pref("browser.shell.checkDefaultBrowser", false);
+// Proxy settings
 user_pref("network.proxy.type", 1);
 user_pref("network.proxy.http", "127.0.0.1");
 user_pref("network.proxy.http_port", 9090);
@@ -462,6 +466,16 @@ user_pref("network.proxy.socks_port", 9090);
 user_pref("network.proxy.share_proxy_settings", true);
 user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1");
 user_pref("network.proxy.socks_remote_dns", true);
+// Disable telemetry
+user_pref("toolkit.telemetry.enabled", false);
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("toolkit.telemetry.reportingpolicy.previous", false);
+user_pref("toolkit.telemetry.reportingpolicy.new", false);
+user_pref("toolkit.telemetry.reportingpolicy.opt-out", false);
+user_pref("toolkit.telemetry.reportingpolicy.opt-in", false);
+user_pref("toolkit.telemetry.newProfilePing.enabled", false);
+user_pref("toolkit.telemetry.newProfilePing.firstRun", false);
+user_pref("toolkit.telemetry.server", "data:,");
 `
 	if err := os.WriteFile(filepath.Join(profileDir, "user.js"), []byte(userJSContent), 0644); err != nil {
 		return fmt.Errorf("failed to create user.js file: %v", err)

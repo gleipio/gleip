@@ -448,37 +448,228 @@ firefox-installer.exe /S /D=%~dp0
 		return fmt.Errorf("failed to create profile directory: %v", err)
 	}
 
-	// Create user.js file with proxy settings
-	userJSContent := `// Disable startup page
+	// Create user.js file with proxy settings and complete privacy configuration
+	// Get absolute path for proxy.pac file
+	absProfileDir, err := filepath.Abs(profileDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for profile directory: %v", err)
+	}
+	proxyPacPath := filepath.Join(absProfileDir, "proxy.pac")
+
+	userJSContent := fmt.Sprintf(`// Gleip Firefox Configuration - Complete Privacy & Proxy Setup
+// Based on Mozilla's guide to stop automatic connections
+
+// === STARTUP & HOMEPAGE ===
 user_pref("browser.startup.homepage", "about:blank");
-user_pref("network.captive-portal-service.enabled", false);
+user_pref("browser.startup.page", 0);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
 user_pref("browser.shell.checkDefaultBrowser", false);
-// Proxy settings
-user_pref("network.proxy.type", 1);
-user_pref("network.proxy.http", "127.0.0.1");
-user_pref("network.proxy.http_port", 9090);
-user_pref("network.proxy.ssl", "127.0.0.1");
-user_pref("network.proxy.ssl_port", 9090);
-user_pref("network.proxy.ftp", "127.0.0.1");
-user_pref("network.proxy.ftp_port", 9090);
-user_pref("network.proxy.socks", "127.0.0.1");
-user_pref("network.proxy.socks_port", 9090);
-user_pref("network.proxy.share_proxy_settings", true);
+
+// === PROXY SETTINGS ===
+// Use automatic proxy configuration to block Mozilla domains and route traffic through Gleip
+user_pref("network.proxy.type", 2);
+user_pref("network.proxy.autoconfig_url", "file://%s");
+user_pref("network.proxy.autoconfig_retry_interval_min", 5);
+user_pref("network.proxy.autoconfig_retry_interval_max", 300);
 user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1");
 user_pref("network.proxy.socks_remote_dns", true);
-// Disable telemetry
+
+// === DISABLE ALL AUTO-UPDATES ===
+user_pref("app.update.enabled", false);
+user_pref("app.update.auto", false);
+user_pref("app.update.mode", 0);
+user_pref("app.update.service.enabled", false);
+user_pref("extensions.update.enabled", false);
+user_pref("extensions.update.autoUpdateDefault", false);
+user_pref("extensions.systemAddon.update.enabled", false);
+
+// === DISABLE BLOCKLIST UPDATES ===
+user_pref("extensions.blocklist.enabled", false);
+user_pref("extensions.blocklist.url", "");
+
+// === DISABLE SAFE BROWSING & MALWARE PROTECTION ===
+user_pref("browser.safebrowsing.enabled", false);
+user_pref("browser.safebrowsing.phishing.enabled", false);
+user_pref("browser.safebrowsing.malware.enabled", false);
+user_pref("browser.safebrowsing.downloads.enabled", false);
+user_pref("browser.safebrowsing.downloads.remote.enabled", false);
+user_pref("browser.safebrowsing.downloads.remote.url", "");
+user_pref("browser.safebrowsing.downloads.remote.block_potentially_unwanted", false);
+user_pref("browser.safebrowsing.downloads.remote.block_uncommon", false);
+user_pref("browser.safebrowsing.provider.google.updateURL", "");
+user_pref("browser.safebrowsing.provider.google.gethashURL", "");
+user_pref("browser.safebrowsing.provider.google4.updateURL", "");
+user_pref("browser.safebrowsing.provider.google4.gethashURL", "");
+user_pref("browser.safebrowsing.provider.mozilla.updateURL", "");
+user_pref("browser.safebrowsing.provider.mozilla.gethashURL", "");
+
+// === DISABLE TRACKING PROTECTION UPDATES ===
+user_pref("privacy.trackingprotection.enabled", false);
+user_pref("privacy.trackingprotection.pbmode.enabled", false);
+user_pref("urlclassifier.trackingTable", "");
+user_pref("urlclassifier.trackingWhitelistTable", "");
+
+// === DISABLE CERTIFICATE VERIFICATION & OCSP ===
+user_pref("security.OCSP.enabled", 0);
+user_pref("security.OCSP.require", false);
+user_pref("security.ssl.enable_ocsp_stapling", false);
+user_pref("security.ssl.enable_ocsp_must_staple", false);
+
+// === DISABLE ALL PREFETCHING ===
+user_pref("network.prefetch-next", false);
+user_pref("network.dns.disablePrefetch", true);
+user_pref("network.dns.disablePrefetchFromHTTPS", true);
+user_pref("network.predictor.enabled", false);
+user_pref("network.predictor.enable-hover-on-ssl", false);
+user_pref("network.predictor.enable-prefetch", false);
+user_pref("network.http.speculative-parallel-limit", 0);
+
+// === DISABLE SEARCH SUGGESTIONS & URL BAR ===
+user_pref("browser.search.suggest.enabled", false);
+user_pref("browser.urlbar.suggest.searches", false);
+user_pref("browser.urlbar.suggest.topsites", false);
+user_pref("browser.urlbar.suggest.history", false);
+user_pref("browser.urlbar.suggest.bookmark", false);
+user_pref("browser.urlbar.suggest.openpage", false);
+user_pref("browser.urlbar.suggest.remotetab", false);
+user_pref("browser.urlbar.userMadeSearchSuggestionsChoice", true);
+user_pref("keyword.enabled", false);
+user_pref("browser.fixup.alternate.enabled", false);
+
+// === DISABLE ALL TELEMETRY & DIAGNOSTICS ===
 user_pref("toolkit.telemetry.enabled", false);
-user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
-user_pref("toolkit.telemetry.reportingpolicy.previous", false);
-user_pref("toolkit.telemetry.reportingpolicy.new", false);
-user_pref("toolkit.telemetry.reportingpolicy.opt-out", false);
-user_pref("toolkit.telemetry.reportingpolicy.opt-in", false);
-user_pref("toolkit.telemetry.newProfilePing.enabled", false);
-user_pref("toolkit.telemetry.newProfilePing.firstRun", false);
+user_pref("toolkit.telemetry.unified", false);
 user_pref("toolkit.telemetry.server", "data:,");
-`
+user_pref("toolkit.telemetry.archive.enabled", false);
+user_pref("toolkit.telemetry.newProfilePing.enabled", false);
+user_pref("toolkit.telemetry.shutdownPingSender.enabled", false);
+user_pref("toolkit.telemetry.updatePing.enabled", false);
+user_pref("toolkit.telemetry.bhrPing.enabled", false);
+user_pref("toolkit.telemetry.firstShutdownPing.enabled", false);
+user_pref("toolkit.telemetry.hybridContent.enabled", false);
+user_pref("datareporting.healthreport.uploadEnabled", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("app.shield.optoutstudies.enabled", false);
+user_pref("app.normandy.enabled", false);
+user_pref("app.normandy.api_url", "");
+
+// === DISABLE CRASH REPORTING ===
+user_pref("breakpad.reportURL", "");
+user_pref("browser.tabs.crashReporting.sendReport", false);
+user_pref("browser.crashReports.unsubmittedCheck.enabled", false);
+user_pref("browser.crashReports.unsubmittedCheck.autoSubmit2", false);
+
+// === DISABLE NEW TAB PAGE & ACTIVITY STREAM ===
+user_pref("browser.newtabpage.enabled", false);
+user_pref("browser.newtabpage.enhanced", false);
+user_pref("browser.newtabpage.activity-stream.enabled", false);
+user_pref("browser.newtabpage.activity-stream.feeds.topsites", false);
+user_pref("browser.newtabpage.activity-stream.feeds.section.highlights", false);
+user_pref("browser.newtabpage.activity-stream.feeds.snippets", false);
+user_pref("browser.newtabpage.activity-stream.feeds.telemetry", false);
+user_pref("browser.newtabpage.activity-stream.telemetry", false);
+user_pref("browser.newtabpage.activity-stream.feeds.discoverystreamfeed", false);
+user_pref("browser.newtabpage.activity-stream.showSponsored", false);
+user_pref("browser.newtabpage.activity-stream.showSponsoredTopSites", false);
+
+// === DISABLE EXTENSIONS METADATA & RECOMMENDATIONS ===
+user_pref("extensions.getAddons.cache.enabled", false);
+user_pref("extensions.getAddons.showPane", false);
+user_pref("extensions.htmlaboutaddons.recommendations.enabled", false);
+user_pref("extensions.webservice.discoverURL", "");
+user_pref("extensions.getAddons.discovery.api_url", "");
+
+// === DISABLE LOCATION SERVICES ===
+user_pref("geo.enabled", false);
+user_pref("geo.provider.network.url", "");
+user_pref("geo.provider.ms-windows-location", false);
+user_pref("geo.provider.use_corelocation", false);
+user_pref("geo.provider.use_gpsd", false);
+user_pref("browser.region.network.url", "");
+user_pref("browser.region.update.enabled", false);
+
+// === DISABLE MEDIA CODECS & DRM ===
+user_pref("media.gmp-gmpopenh264.enabled", false);
+user_pref("media.gmp-manager.url", "");
+user_pref("media.gmp-manager.updateEnabled", false);
+user_pref("media.eme.enabled", false);
+user_pref("media.gmp-widevinecdm.enabled", false);
+
+// === DISABLE WEBRTC ===
+user_pref("media.peerconnection.enabled", false);
+user_pref("media.peerconnection.ice.default_address_only", true);
+user_pref("media.peerconnection.ice.no_host", true);
+
+// === DISABLE NETWORK DETECTION ===
+user_pref("network.captive-portal-service.enabled", false);
+user_pref("network.connectivity-service.enabled", false);
+user_pref("captivedetect.canonicalURL", "");
+
+// === DISABLE FIREFOX SYNC ===
+user_pref("services.sync.enabled", false);
+user_pref("identity.fxaccounts.enabled", false);
+
+// === DISABLE POCKET ===
+user_pref("extensions.pocket.enabled", false);
+user_pref("extensions.pocket.api", "");
+user_pref("extensions.pocket.site", "");
+
+// === DISABLE FIREFOX SCREENSHOTS ===
+user_pref("extensions.screenshots.disabled", true);
+
+// === DISABLE FORM AUTOFILL ===
+user_pref("extensions.formautofill.addresses.enabled", false);
+user_pref("extensions.formautofill.creditCards.enabled", false);
+
+// === DISABLE WEB NOTIFICATIONS ===
+user_pref("dom.webnotifications.enabled", false);
+user_pref("dom.push.enabled", false);
+
+// === DISABLE VARIOUS OTHER CONNECTIONS ===
+user_pref("network.allow-experiments", false);
+user_pref("network.http.sendOriginHeader", 0);
+user_pref("dom.security.https_only_mode", false);
+user_pref("security.ssl.errorReporting.enabled", false);
+user_pref("browser.ping-centre.telemetry", false);
+user_pref("browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons", false);
+user_pref("browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features", false);
+`, proxyPacPath)
 	if err := os.WriteFile(filepath.Join(profileDir, "user.js"), []byte(userJSContent), 0644); err != nil {
 		return fmt.Errorf("failed to create user.js file: %v", err)
+	}
+
+	// Create proxy.pac file to block remaining Mozilla connections that can't be disabled via preferences
+	proxyPacContent := `// Gleip Proxy PAC file to block Mozilla automatic connections
+// Based on https://www.abcdesktop.io/common/disable-firefox-connections/
+
+function FindProxyForURL(url, host) {
+    // Gleip proxy server for normal traffic
+    var gleipProxy = "PROXY 127.0.0.1:9090";
+    
+    // Blackhole for blocked Mozilla domains - unreachable proxy
+    var blackhole = "PROXY 127.0.0.1:12345";
+    
+    // Block specific Mozilla domains that cannot be disabled via preferences
+    if (host == "firefox.settings.services.mozilla.com" ||
+        host == "content-signature-2.cdn.mozilla.net" ||
+        host == "firefox-settings-attachments.cdn.mozilla.net" ||
+        host == "normandy.cdn.mozilla.net" ||
+        host == "classify-client.services.mozilla.com"||
+		host == "aus5.mozilla.org"||
+		host == "aus4.mozilla.org"||
+		host == "aus3.mozilla.org"||
+		host == "aus2.mozilla.org"||
+		host == "aus1.mozilla.org"||
+		host == "aus0.mozilla.org") {
+        return blackhole;
+    }
+    
+    // Route all other traffic through Gleip proxy
+    return gleipProxy;
+}
+`
+	if err := os.WriteFile(filepath.Join(profileDir, "proxy.pac"), []byte(proxyPacContent), 0644); err != nil {
+		return fmt.Errorf("failed to create proxy.pac file: %v", err)
 	}
 
 	// Also create a prefs.js to ensure profile is recognized
@@ -824,28 +1015,6 @@ func (a *App) LaunchFirefoxBrowser() error {
 	profileDir := filepath.Join(browserDir, "profile")
 	if err := os.MkdirAll(profileDir, 0755); err != nil {
 		return fmt.Errorf("failed to create profile directory: %v", err)
-	}
-
-	// Create user.js file with proxy settings if it doesn't exist
-	userJSPath := filepath.Join(profileDir, "user.js")
-	if _, err := os.Stat(userJSPath); os.IsNotExist(err) {
-		userJSContent := `// Proxy settings
-user_pref("network.proxy.type", 1);
-user_pref("network.proxy.http", "127.0.0.1");
-user_pref("network.proxy.http_port", 9090);
-user_pref("network.proxy.ssl", "127.0.0.1");
-user_pref("network.proxy.ssl_port", 9090);
-user_pref("network.proxy.ftp", "127.0.0.1");
-user_pref("network.proxy.ftp_port", 9090);
-user_pref("network.proxy.socks", "127.0.0.1");
-user_pref("network.proxy.socks_port", 9090);
-user_pref("network.proxy.share_proxy_settings", true);
-user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1");
-user_pref("network.proxy.socks_remote_dns", true);
-`
-		if err := os.WriteFile(userJSPath, []byte(userJSContent), 0644); err != nil {
-			return fmt.Errorf("failed to create user.js file: %v", err)
-		}
 	}
 
 	// Create prefs.js if it doesn't exist

@@ -1,7 +1,13 @@
+2025.06.11-1
+🛡️ Security
+- We're now on Svelte 5, Vite 6, and TailwindCSS 4 ⏫
+- Upgraded all npm imports to non-vulnerable versions
+
 2025.06.11
 🐛 Bug Fixing
 - Telemetry now initializes properly
 
+
 2025.06.09
 ✨ New Features
-Steps can now be added contextually between other steps
+- Steps can now be added contextually between other steps

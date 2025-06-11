@@ -5,11 +5,12 @@ initializeMonaco();
 // Then load regular imports
 import './app.css';
 import App from './App.svelte';
+import { mount } from 'svelte';
 
 // Set dark mode as default
 document.documentElement.classList.add('dark');
 
-const app = new App({
+const app = mount(App, {
   target: document.getElementById('app')!,
 });
 

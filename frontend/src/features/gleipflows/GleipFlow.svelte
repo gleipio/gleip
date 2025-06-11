@@ -798,15 +798,24 @@
               />
             {:else}
               {gleip.name}
-              <button 
-                class="ml-2 text-gray-500 hover:text-gray-100"
+              <span 
+                class="ml-2 text-gray-500 hover:text-gray-100 cursor-pointer"
+                tabindex="0"
+                role="button"
                 on:click={(e) => {
                   e.stopPropagation();
                   deleteGleipFlow(gleip.id);
                 }}
+                on:keydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteGleipFlow(gleip.id);
+                  }
+                }}
               >
                 ×
-              </button>
+              </span>
             {/if}
           </button>
         {/each}

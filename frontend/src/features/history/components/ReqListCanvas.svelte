@@ -153,7 +153,11 @@
   // Handle mouse move for hover effect
   function handleCanvasMouseMove(e: MouseEvent) {
     if (!canvasRef || !requests.length) {
+      const wasHovering = isHoveringValidRow;
       isHoveringValidRow = false;
+      if (wasHovering) {
+        applyCanvasStyles(); // Update cursor when hover state changes
+      }
       return;
     }
     
@@ -165,7 +169,13 @@
     const mouseRowIndex = Math.floor((y + scrollTop) / ROW_HEIGHT);
     
     // Update hover state for cursor style
+    const wasHovering = isHoveringValidRow;
     isHoveringValidRow = mouseRowIndex >= 0 && mouseRowIndex < requests.length;
+    
+    // Update cursor if hover state changed
+    if (wasHovering !== isHoveringValidRow) {
+      applyCanvasStyles();
+    }
     
     // Only redraw if the hovered row changed
     if (mouseRowIndex >= 0 && mouseRowIndex < requests.length && mouseRowIndex !== hoveredRowIndex) {
@@ -184,6 +194,8 @@
       hoveredRowIndex = -1;
       renderer?.redraw();
     }
+    // Ensure canvas styles remain applied (Svelte 5 fix)
+    applyCanvasStyles();
   }
 
   // Calculate column positions to find boundaries
@@ -352,14 +364,8 @@
       visibleStartIndex + visibleRowCount + bufferRows
     );
     
-    // CRITICAL FIX: Make the canvas stick to the viewport by using fixed positioning
-    // This ensures it stays in view as we scroll - this fixes the blank area issue
-    canvasRef.style.transform = 'none';
-    canvasRef.style.position = 'sticky';
-    canvasRef.style.top = '0'; 
-    canvasRef.style.left = '0';
-    canvasRef.style.width = `${canvasWidth}px`;
-    canvasRef.style.height = `${containerHeight}px`; // Make canvas cover visible area
+    // Apply proper canvas styling to ensure consistent positioning
+    applyCanvasStyles();
     
     // Update the horizontal scroll position
     horizontalScrollPos = canvasContainerRef.scrollLeft;
@@ -380,6 +386,24 @@
     return columns.reduce((total, column) => total + column.width, 0) + COLUMN_RIGHT_PADDING;
   }
   
+  // Apply proper canvas styling - ensures consistent positioning
+  function applyCanvasStyles() {
+    if (!canvasRef || !canvasContainerRef) return;
+    
+    const containerHeight = canvasContainerRef.clientHeight;
+    
+    // Always apply the complete set of styles for proper positioning
+    canvasRef.style.transform = 'none';
+    canvasRef.style.position = 'sticky';
+    canvasRef.style.top = '0';
+    canvasRef.style.left = '0';
+    canvasRef.style.width = `${canvasWidth}px`;
+    canvasRef.style.height = `${containerHeight}px`;
+    canvasRef.style.zIndex = '10';
+    canvasRef.style.pointerEvents = 'auto';
+    canvasRef.style.cursor = isHoveringValidRow ? 'pointer' : 'default';
+  }
+
   // Resize the canvas to match its container and handle horizontal scrolling
   function resizeCanvas() {
     if (!canvasRef || !canvasContainerRef || !renderer) return;
@@ -406,13 +430,8 @@
     canvasRef.width = mainPhysicalWidth;
     canvasRef.height = mainPhysicalHeight;
     
-    // Set the display size via CSS (this affects layout)
-    canvasRef.style.width = `${canvasWidth}px`;
-    canvasRef.style.height = `${canvasHeight}px`;
-    
-    // Make canvas stay in viewport with sticky positioning
-    canvasRef.style.position = 'sticky';
-    canvasRef.style.top = '0';
+    // Apply proper canvas styling
+    applyCanvasStyles();
     
     // Reset the transformation matrix and apply DPR scaling
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -429,6 +448,9 @@
     
     // Critical: Update the canvas dimensions in the renderer
     renderer.resize(canvasWidth, canvasHeight, dpr);
+    
+    // Apply canvas styles after renderer resize to prevent override
+    applyCanvasStyles();
     
     // Redraw canvas contents after resize
     updateVisibleRange();
@@ -787,6 +809,9 @@
       totalContentHeight = requests.length * ROW_HEIGHT + ROW_HEIGHT/2;
       updateVisibleRange();
       
+      // Ensure canvas has proper styling applied immediately (Svelte 5 fix)
+      applyCanvasStyles();
+      
       // Set up resize observer
       const resizeObserver = new ResizeObserver(() => {
         resizeCanvas();
@@ -828,13 +853,13 @@
   });
   
   // React to prop changes
-  $: if (requests) {
+  $: if (requests && renderer) {
     totalContentHeight = requests.length * ROW_HEIGHT + ROW_HEIGHT/2;
     updateVisibleRange();
-    if (renderer) {
-      renderer.updateData(requests);
-      renderer.redraw();
-    }
+    renderer.updateData(requests);
+    renderer.redraw();
+    // Ensure canvas styling is applied after data changes (Svelte 5 fix)
+    applyCanvasStyles();
   }
   
   $: if (selectedRequestId) {
@@ -947,8 +972,7 @@
         <!-- Canvas element positioned at the top of the scrollable area -->
         <canvas 
           bind:this={canvasRef} 
-          class="sticky top-0 left-0"
-          style="z-index: 10; pointer-events: auto; cursor: {isHoveringValidRow ? 'pointer' : 'default'};"
+          class=""
           on:click={handleCanvasClick}
           on:contextmenu|preventDefault={handleCanvasClick}
           on:mousemove={handleCanvasMouseMove}

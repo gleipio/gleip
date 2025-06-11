@@ -168,7 +168,7 @@
 <div class="border border-[var(--color-table-border)] overflow-hidden w-[200px] transition-all duration-200 {isExpanded ? 'w-[600px]' : ''} h-[calc(100vh-126px)] flex-shrink-0 flex flex-col">
   <!-- Title bar -->
   <div 
-    class="p-3 cursor-pointer {isExpanded ? 'bg-[var(--color-midnight-accent)]/40 hover:bg-[var(--color-table-row-hover)]' : 'bg-[var(--color-midnight-darker)] hover:bg-[var(--color-table-row-hover)] flex-grow'}"
+    class="p-3 cursor-pointer {isExpanded ? 'hover:bg-[var(--color-table-row-hover)]' : 'bg-[var(--color-midnight-darker)] hover:bg-[var(--color-table-row-hover)] flex-grow'}"
     on:click={toggleExpand}
     on:keydown={(e) => e.key === 'Enter' && toggleExpand()}
     role="button"

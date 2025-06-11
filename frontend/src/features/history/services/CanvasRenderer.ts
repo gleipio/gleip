@@ -67,9 +67,21 @@ export class CanvasRenderer<T extends { id: string }> {
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
     
+    // Preserve existing positioning styles while updating size
+    const currentTransform = this.canvas.style.transform;
+    const currentPosition = this.canvas.style.position;
+    const currentTop = this.canvas.style.top;
+    const currentLeft = this.canvas.style.left;
+    
     // Set the display size via CSS (this affects layout)
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    
+    // Restore positioning styles if they existed (Svelte 5 fix)
+    if (currentTransform) this.canvas.style.transform = currentTransform;
+    if (currentPosition) this.canvas.style.position = currentPosition;
+    if (currentTop) this.canvas.style.top = currentTop;
+    if (currentLeft) this.canvas.style.left = currentLeft;
     
     // Reset the transformation matrix and apply DPR scaling
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);

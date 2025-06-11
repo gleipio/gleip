@@ -736,8 +736,8 @@
     style={selectedRequestSummary ? `height: ${splitPosition}%` : ''}
   >
     <div class="flex flex-col h-full">
-      <div class="border-b border-[var(--color-midnight-darker)] bg-[var(--color-midnight-light)]/70 px-4 py-3 grid grid-cols-[1fr,auto] items-center gap-4 shrink-0">
-        <div class="relative">
+      <div class="border-b border-[var(--color-midnight-darker)] bg-[var(--color-midnight-light)]/70 px-4 py-3 flex items-center gap-4 shrink-0">
+        <div class="relative flex-1">
           <input
             type="text"
             placeholder="Search requests..."
@@ -764,7 +764,7 @@
             </div>
           {/if}
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-shrink-0">
           {#if firefoxLaunched}
             <div class="fixed bottom-4 right-4 z-50 bg-green-900/80 text-green-200 text-sm py-2 px-3 rounded-md shadow-md">
               Browser Ready!
@@ -775,6 +775,7 @@
             disabled={isLaunchingFirefox}
             variant="primary"
             size="sm"
+            style="white-space: nowrap;"
           >
             {#if isLaunchingFirefox}
               <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

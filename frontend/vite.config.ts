@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import sveltePreprocess from 'svelte-preprocess'
+import tailwindcss from '@tailwindcss/vite'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
@@ -9,6 +10,7 @@ export default defineConfig(({ command, mode }) => {
   
   return {
     plugins: [
+      tailwindcss(),
       svelte({
         compilerOptions: {
           dev: !isProduction,

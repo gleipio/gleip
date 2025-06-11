@@ -27,10 +27,6 @@ dev: check-build-tool
 	@echo "Starting Gleip in development mode..."
 	@if [ -f ".env" ]; then \
 		echo "Loading environment variables from .env file..."; \
-		echo "DEBUG: Contents of .env file:"; \
-		cat .env; \
-		echo "DEBUG: Parsed environment variables:"; \
-		grep -v '^#' .env | grep -v '^$$' | xargs echo; \
 		env $$(grep -v '^#' .env | grep -v '^$$' | xargs) go run $(BUILD_TOOL) dev; \
 	else \
 		go run $(BUILD_TOOL) dev; \

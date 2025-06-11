@@ -87,6 +87,10 @@ jobs:
         rm certificate.p12
         
         echo "✅ Code signing certificate imported successfully"
+
+        # Enable code signing for the build tool (release only)
+        echo "GLEIP_CI_BUILD=" >> $GITHUB_ENV
+        echo "ENABLE_CODE_SIGNING=true" >> $GITHUB_ENV
       env:
         MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -99,8 +103,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-
-
 
     - name: Cleanup
       if: always()

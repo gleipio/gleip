@@ -2,11 +2,12 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { ClipboardGetText, EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
-  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition } from '../../../wailsjs/go/backend/App';
+  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition, GetPhantomRequests, AddPhantomRequestToGleipFlow } from '../../../wailsjs/go/backend/App';
   import * as monaco from 'monaco-editor';
   import GleipStepCard from './components/GleipFlowStepCard.svelte';
   import AddStepButtons from './components/AddStepButtons.svelte';
   import ContextMenu from '../../shared/components/ContextMenu.svelte';
+  import PhantomRequestsSection from './components/PhantomRequestsSection.svelte';
   import { GleipFlowExecutionService } from './services/GleipFlowExecutionService';
   import { 
     gleipFlows, 
@@ -771,6 +772,46 @@
       showNotification(`Failed to paste request: ${error}`);
     }
   }
+
+  // Get the last request in the current flow for phantom request generation
+  function getLastRequestInFlow() {
+    if (!$activeGleipFlow || $activeGleipFlow.steps.length === 0) {
+      return null;
+    }
+    
+    // Find the last request step
+    for (let i = $activeGleipFlow.steps.length - 1; i >= 0; i--) {
+      const step = $activeGleipFlow.steps[i];
+      if (step.stepType === 'request' && step.requestStep) {
+        return step.requestStep;
+      }
+    }
+    
+    return null;
+  }
+
+  // Handle adding a phantom request to the flow
+  async function handleAddPhantomRequest(event: CustomEvent) {
+    const { phantomRequest } = event.detail;
+    
+    if (!$activeGleipFlow) {
+      showNotification('No active flow to add request to');
+      return;
+    }
+    
+    try {
+      // Call backend to add the phantom request
+      await AddPhantomRequestToGleipFlow($activeGleipFlow.id, phantomRequest);
+      
+      // Reload flows to get the updated state
+      await loadGleipFlows();
+      
+      showNotification('Request added successfully');
+    } catch (error) {
+      console.error('Failed to add phantom request:', error);
+      showNotification(`Failed to add request: ${error}`);
+    }
+  }
 </script>
 
 <div class="flex flex-col h-full">
@@ -903,6 +944,13 @@
               />
             </div>
           {/each}
+          
+          <!-- Phantom requests section -->
+          <PhantomRequestsSection
+            gleipFlowId={$gleipFlows[$activeGleipFlowIndex].id}
+            lastRequestInFlow={getLastRequestInFlow()}
+            on:addPhantomRequest={handleAddPhantomRequest}
+          />
         </div>
       {:else}
         <div class="flex items-center justify-center h-64 text-gray-500">

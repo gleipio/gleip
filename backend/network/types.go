@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+// RequestLike interface defines the common structure for HTTP request objects
+// Both HTTPRequest and PhantomRequest implement this interface
+type RequestLike interface {
+	GetHost() string
+	GetTLS() bool
+	GetDump() string
+}
+
 // RequestSender interface for sending HTTP requests (Single Responsibility)
 type RequestSender interface {
 	SendRequest(method, url, host, body string, headers map[string]string, gunzipResponse bool, tls bool) (*HTTPTransaction, error)
@@ -32,6 +40,11 @@ type HTTPRequest struct {
 	TLS  bool   `json:"tls"`  // Whether the request is using TLS/HTTPS
 	Dump string `json:"dump"` // Raw HTTP request dump
 }
+
+// Implement RequestLike interface
+func (r *HTTPRequest) GetHost() string { return r.Host }
+func (r *HTTPRequest) GetTLS() bool    { return r.TLS }
+func (r *HTTPRequest) GetDump() string { return r.Dump }
 
 func (r *HTTPRequest) Headers() map[string]string {
 	headers := make(map[string]string)

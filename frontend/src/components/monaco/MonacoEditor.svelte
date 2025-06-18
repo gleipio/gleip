@@ -4,7 +4,7 @@
   
   // Props
   export let value: string = '';
-  export let language: string = 'javascript';
+  export let language: string = 'http';
   export let readOnly: boolean = false;
   export let automaticLayout: boolean = true;
   export let fontSize: number = 12;

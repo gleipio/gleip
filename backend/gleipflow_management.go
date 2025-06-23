@@ -938,6 +938,7 @@ func (a *App) GetPhantomRequests(gleipFlowID string, lastRequest interface{}) ([
 }
 
 // findLikelyNextRequests analyzes history and returns top 3 most likely next requests
+// with deduplication and improved heuristics
 func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentTx network.HTTPTransaction) []ScoredTransaction {
 	if len(history) < 2 {
 		return []ScoredTransaction{}
@@ -950,11 +951,18 @@ func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentT
 	}
 
 	candidates := make([]ScoredTransaction, 0)
+	seenRequests := make(map[string]bool) // Track functionally identical requests
 
 	// Analyze each transaction in history as a potential next request
 	for i, tx := range history {
 		if tx.ID == currentTx.ID {
 			continue // Skip the current transaction
+		}
+
+		// Create unique signature for deduplication
+		requestSignature := a.createRequestSignature(tx)
+		if seenRequests[requestSignature] {
+			continue // Skip functionally identical requests
 		}
 
 		score := a.calculateHeuristicScore(history, currentTx, tx, currentTime, i)
@@ -963,14 +971,16 @@ func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentT
 				Transaction: &tx,
 				Score:       score,
 			})
+			seenRequests[requestSignature] = true
 		}
 	}
 
-	// Sort by score (highest first) and return top 3
+	// Sort by score in descending order (highest first)
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].Score > candidates[j].Score
 	})
 
+	// Return only top 3 results
 	maxResults := 3
 	if len(candidates) < maxResults {
 		maxResults = len(candidates)
@@ -979,7 +989,7 @@ func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentT
 	return candidates[:maxResults]
 }
 
-// calculateHeuristicScore calculates relevance score based on multiple heuristics
+// calculateHeuristicScore calculates relevance score based on multiple improved heuristics
 func (a *App) calculateHeuristicScore(history []network.HTTPTransaction, currentTx, candidateTx network.HTTPTransaction, currentTime time.Time, candidateIndex int) float64 {
 	score := 0.0
 
@@ -989,37 +999,58 @@ func (a *App) calculateHeuristicScore(history []network.HTTPTransaction, current
 		return 0.0
 	}
 
-	// 1. Time proximity heuristic (higher score for requests that historically follow soon after)
+	// 1. TEMPORAL PROXIMITY HEURISTIC: Requests within 5 seconds get high priority
+	// This captures immediate follow-up requests like redirects, AJAX calls, or form submissions
 	timeDiff := candidateTime.Sub(currentTime)
-	if timeDiff > 0 && timeDiff < 30*time.Minute {
-		// Requests within 30 minutes get time proximity bonus
-		proximityScore := 10.0 * (1.0 - (timeDiff.Seconds() / (30 * 60)))
+	if timeDiff > 0 && timeDiff <= 5*time.Second {
+		proximityScore := 25.0 * (1.0 - (timeDiff.Seconds() / 5))
+		score += proximityScore
+	} else if timeDiff > 0 && timeDiff <= 30*time.Second {
+		// Secondary proximity window for related requests
+		proximityScore := 10.0 * (1.0 - (timeDiff.Seconds() / 30))
 		score += proximityScore
 	}
 
-	// 2. Sequential pattern heuristic (look for requests that often follow the current one)
+	// 2. SEQUENTIAL PATTERN HEURISTIC: Analyze historical request sequences
+	// This identifies patterns where one request consistently follows another
 	sequenceScore := a.calculateSequenceScore(history, currentTx, candidateTx)
 	score += sequenceScore
 
-	// 3. Same host/domain bonus
+	// 3. SAME HOST/DOMAIN BONUS: Requests on the same domain are more likely to be related
 	if currentTx.Request.Host == candidateTx.Request.Host {
 		score += 15.0
 	}
 
-	// 4. Same protocol bonus
+	// 4. SAME PROTOCOL BONUS: HTTP/HTTPS consistency indicates related flows
 	if currentTx.Request.TLS == candidateTx.Request.TLS {
 		score += 5.0
 	}
 
-	// 5. Path similarity heuristic
-	pathScore := a.calculatePathSimilarityScore(currentTx.Request.URL(), candidateTx.Request.URL())
+	// 5. PATH DEPTH PROGRESSION HEURISTIC: Requests that go deeper in the same path structure
+	// Example: /api/users → /api/users/123 → /api/users/123/profile
+	pathScore := a.calculatePathProgressionScore(currentTx.Request.URL(), candidateTx.Request.URL())
 	score += pathScore
 
-	// 6. HTTP method patterns
+	// 6. HTTP METHOD PATTERNS: Common request method sequences in web applications
 	methodScore := a.calculateMethodPatternScore(currentTx.Request.Method(), candidateTx.Request.Method())
 	score += methodScore
 
-	// 7. Recency bonus (more recent requests get slight preference)
+	// 7. SHARED COOKIES/SESSION TOKENS HEURISTIC: Requests with similar authentication
+	// This identifies authenticated flows and session-based interactions
+	cookieScore := a.calculateCookieSimilarityScore(currentTx, candidateTx)
+	score += cookieScore
+
+	// 8. REFERER HEADER HEURISTIC: Candidate request has Referer matching current request URL
+	// This captures navigation flows and form submissions
+	refererScore := a.calculateRefererScore(currentTx, candidateTx)
+	score += refererScore
+
+	// 9. LOCATION HEADER REDIRECT HEURISTIC: Current request has 3xx status with Location header
+	// that matches the candidate request URL (redirect following)
+	redirectScore := a.calculateRedirectScore(currentTx, candidateTx)
+	score += redirectScore
+
+	// 10. RECENCY BONUS: More recent requests get slight preference (avoid stale patterns)
 	daysSinceCandidate := time.Since(candidateTime).Hours() / 24
 	if daysSinceCandidate < 7 {
 		score += 2.0 * (1.0 - (daysSinceCandidate / 7))
@@ -1156,6 +1187,223 @@ func (a *App) extractPath(urlStr string) string {
 	}
 
 	return path
+}
+
+// createRequestSignature creates a unique signature for request deduplication
+// Combines method, path, query parameters, and body to identify functionally identical requests
+func (a *App) createRequestSignature(tx network.HTTPTransaction) string {
+	method := tx.Request.Method()
+	url := tx.Request.URL()
+	body := string(tx.Request.Body())
+
+	// Normalize the signature to catch functionally equivalent requests
+	return fmt.Sprintf("%s|%s|%s", method, url, body)
+}
+
+// calculatePathProgressionScore analyzes if the candidate request goes deeper in the same path structure
+// Higher scores for requests that extend the current path (e.g., /api/users → /api/users/123)
+func (a *App) calculatePathProgressionScore(currentURL, candidateURL string) float64 {
+	currentPath := a.extractPath(currentURL)
+	candidatePath := a.extractPath(candidateURL)
+
+	// Split paths into segments
+	currentSegments := strings.Split(strings.Trim(currentPath, "/"), "/")
+	candidateSegments := strings.Split(strings.Trim(candidatePath, "/"), "/")
+
+	// Filter out empty segments
+	currentSegments = a.filterEmptyStrings(currentSegments)
+	candidateSegments = a.filterEmptyStrings(candidateSegments)
+
+	if len(currentSegments) == 0 || len(candidateSegments) == 0 {
+		return 0.0
+	}
+
+	// Check if candidate path extends current path (deeper navigation)
+	if len(candidateSegments) > len(currentSegments) {
+		// Check if current path is a prefix of candidate path
+		isPrefix := true
+		for i := 0; i < len(currentSegments); i++ {
+			if currentSegments[i] != candidateSegments[i] {
+				isPrefix = false
+				break
+			}
+		}
+		if isPrefix {
+			// Score based on how much deeper it goes (up to 12 points)
+			depthIncrease := len(candidateSegments) - len(currentSegments)
+			return 12.0 / float64(depthIncrease) // More points for immediate depth increase
+		}
+	}
+
+	// Fallback to similarity scoring for related paths
+	return a.calculatePathSimilarityScore(currentURL, candidateURL)
+}
+
+// calculateCookieSimilarityScore analyzes shared cookies and session tokens between requests
+// Higher scores for requests with similar authentication context
+func (a *App) calculateCookieSimilarityScore(currentTx, candidateTx network.HTTPTransaction) float64 {
+	currentHeaders := currentTx.Request.Headers()
+	candidateHeaders := candidateTx.Request.Headers()
+
+	currentCookies := a.extractCookies(currentHeaders["Cookie"])
+	candidateCookies := a.extractCookies(candidateHeaders["Cookie"])
+
+	if len(currentCookies) == 0 || len(candidateCookies) == 0 {
+		return 0.0
+	}
+
+	// Count shared cookies, with extra weight for session/auth tokens
+	sharedCount := 0
+	authTokenBonus := 0.0
+
+	for cookieName, currentValue := range currentCookies {
+		if candidateValue, exists := candidateCookies[cookieName]; exists && candidateValue == currentValue {
+			sharedCount++
+
+			// Extra points for authentication-related cookies
+			lowerName := strings.ToLower(cookieName)
+			if strings.Contains(lowerName, "session") || strings.Contains(lowerName, "auth") ||
+				strings.Contains(lowerName, "token") || strings.Contains(lowerName, "csrf") {
+				authTokenBonus += 3.0
+			}
+		}
+	}
+
+	totalCookies := len(currentCookies)
+	if len(candidateCookies) > totalCookies {
+		totalCookies = len(candidateCookies)
+	}
+
+	if totalCookies == 0 {
+		return 0.0
+	}
+
+	// Base score from shared cookies + auth token bonus (up to 10 points + bonus)
+	baseScore := (float64(sharedCount) / float64(totalCookies)) * 10.0
+	return baseScore + authTokenBonus
+}
+
+// calculateRefererScore checks if candidate request has Referer header matching current request URL
+// This identifies navigation flows where one request leads to another
+func (a *App) calculateRefererScore(currentTx, candidateTx network.HTTPTransaction) float64 {
+	candidateHeaders := candidateTx.Request.Headers()
+	referer := candidateHeaders["Referer"]
+
+	if referer == "" {
+		referer = candidateHeaders["referer"] // Try lowercase
+	}
+
+	if referer == "" {
+		return 0.0
+	}
+
+	currentURL := currentTx.Request.URL()
+
+	// Exact match gets full points
+	if referer == currentURL {
+		return 15.0
+	}
+
+	// Partial match for different query parameters but same base URL
+	currentBase := strings.Split(currentURL, "?")[0]
+	refererBase := strings.Split(referer, "?")[0]
+
+	if currentBase == refererBase {
+		return 8.0
+	}
+
+	return 0.0
+}
+
+// calculateRedirectScore checks if current request has 3xx status with Location header
+// that matches the candidate request URL (redirect following pattern)
+func (a *App) calculateRedirectScore(currentTx, candidateTx network.HTTPTransaction) float64 {
+	// Check if current request has a response with redirect status
+	if currentTx.Response == nil {
+		return 0.0
+	}
+
+	statusCode := currentTx.Response.StatusCode()
+	if statusCode < 300 || statusCode >= 400 {
+		return 0.0 // Not a redirect response
+	}
+
+	// Extract Location header from current response
+	locationHeader := a.extractLocationHeader(currentTx.Response.Dump)
+	if locationHeader == "" {
+		return 0.0
+	}
+
+	candidateURL := candidateTx.Request.URL()
+
+	// Exact match gets high score (redirect following)
+	if locationHeader == candidateURL {
+		return 20.0
+	}
+
+	// Relative URL handling - convert to absolute for comparison
+	if strings.HasPrefix(locationHeader, "/") {
+		// Construct full URL
+		scheme := "http"
+		if currentTx.Request.TLS {
+			scheme = "https"
+		}
+		fullLocation := fmt.Sprintf("%s://%s%s", scheme, currentTx.Request.Host, locationHeader)
+		if fullLocation == candidateURL {
+			return 20.0
+		}
+	}
+
+	return 0.0
+}
+
+// Helper methods
+
+// filterEmptyStrings removes empty strings from a slice
+func (a *App) filterEmptyStrings(strs []string) []string {
+	result := make([]string, 0, len(strs))
+	for _, s := range strs {
+		if s != "" {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// extractCookies parses cookie string into a map
+func (a *App) extractCookies(cookieHeader string) map[string]string {
+	cookies := make(map[string]string)
+	if cookieHeader == "" {
+		return cookies
+	}
+
+	// Split by semicolon and parse each cookie
+	parts := strings.Split(cookieHeader, ";")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "=") {
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) == 2 {
+				cookies[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+			}
+		}
+	}
+
+	return cookies
+}
+
+// extractLocationHeader extracts Location header from HTTP response dump
+func (a *App) extractLocationHeader(responseDump string) string {
+	lines := strings.Split(responseDump, "\r\n")
+	for _, line := range lines {
+		if strings.HasPrefix(strings.ToLower(line), "location:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
 }
 
 // AddPhantomRequestToGleipFlow adds a phantom request as a new request step at the end of the flow

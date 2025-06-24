@@ -953,6 +953,10 @@ func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentT
 	candidates := make([]ScoredTransaction, 0)
 	seenRequests := make(map[string]bool) // Track functionally identical requests
 
+	// Mark the current request signature as seen to avoid suggesting identical requests
+	currentRequestSignature := a.createRequestSignature(currentTx)
+	seenRequests[currentRequestSignature] = true
+
 	// Analyze each transaction in history as a potential next request
 	for i, tx := range history {
 		if tx.ID == currentTx.ID {
@@ -962,7 +966,7 @@ func (a *App) findLikelyNextRequests(history []network.HTTPTransaction, currentT
 		// Create unique signature for deduplication
 		requestSignature := a.createRequestSignature(tx)
 		if seenRequests[requestSignature] {
-			continue // Skip functionally identical requests
+			continue // Skip functionally identical requests (including duplicates of current request)
 		}
 
 		score := a.calculateHeuristicScore(history, currentTx, tx, currentTime, i)

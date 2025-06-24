@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { GetRequestMethod, GetRequestURL, GetRequestHeaders, GetRequestBody, GetRequestPath } from '../../../../wailsjs/go/network/HTTPHelper';
+  import { GetRequestMethod, GetRequestPath } from '../../../../wailsjs/go/network/HTTPHelper';
+  import MonacoEditor from '../../../components/monaco/MonacoEditor.svelte';
   
   export let phantomRequest: any;
   export let index: number;
@@ -11,14 +12,11 @@
     dispatch('addPhantomRequest', { phantomRequest, index });
   }
 
-  // Reactive variables for parsed request data
+  // Reactive variables for header display only
   let requestMethod: string = '';
-  let requestURL: string = '';
   let requestPath: string = '';
-  let requestHeaders: Record<string, string> = {};
-  let requestBody: string = '';
 
-  // Load request data when phantomRequest changes
+  // Load minimal request data for header display
   $: if (phantomRequest) {
     loadRequestData();
   }
@@ -27,17 +25,12 @@
     if (phantomRequest) {
       try {
         requestMethod = await GetRequestMethod(phantomRequest);
-        requestURL = await GetRequestURL(phantomRequest);
         requestPath = await GetRequestPath(phantomRequest);
-        requestHeaders = await GetRequestHeaders(phantomRequest);
-        requestBody = await GetRequestBody(phantomRequest);
       } catch (error) {
         console.error('Failed to parse phantom request:', error);
         // Fallback values
         requestMethod = 'GET';
-        requestURL = '/';
-        requestHeaders = {};
-        requestBody = '';
+        requestPath = '/';
       }
     }
   }
@@ -46,42 +39,29 @@
 <div class="bg-gray-800/50 border border-gray-600/50 rounded-lg p-3 mb-2 hover:bg-gray-700/50 transition-colors">
   <!-- Header with method and URL -->
   <div class="flex items-center justify-between mb-2">
-    <div class="flex items-center space-x-2">
-      <span class="http-method text-sm font-bold px-2 py-1 rounded bg-blue-600/20">
+    <div class="flex items-center space-x-2 min-w-0 flex-1">
+      <span class="http-method text-sm font-bold px-2 py-1 rounded bg-blue-600/20 flex-shrink-0">
         {requestMethod}
       </span>
-      <span class="http-path text-sm text-blue-300 truncate">
+      <span class="http-path text-sm text-blue-300 truncate min-w-0">
         {requestPath}
       </span>
     </div>
     <button
-      class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
+      class="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors flex-shrink-0 ml-2"
       on:click={addPhantomRequest}
     >
       Add
     </button>
   </div>
   
-  <!-- Preview of request content -->
-  <div class="text-xs text-gray-400 font-mono">
-    {#if requestHeaders && Object.keys(requestHeaders).length > 0}
-      <div class="mb-1">
-        {#each Object.entries(requestHeaders).slice(0, 2) as [key, value]}
-          <div class="truncate">
-            <span class="http-header-key">{key}:</span>
-            <span class="http-header-value">{value}</span>
-          </div>
-        {/each}
-        {#if Object.keys(requestHeaders).length > 2}
-          <div class="text-gray-500">... +{Object.keys(requestHeaders).length - 2} more headers</div>
-        {/if}
-      </div>
-    {/if}
-    
-    {#if requestBody}
-      <div class="text-gray-300 truncate">
-        Body: {requestBody.substring(0, 50)}{requestBody.length > 50 ? '...' : ''}
-      </div>
-    {/if}
+  <!-- Raw request preview in Monaco editor -->
+  <div class="mt-2" style="height: 15vh;">
+    <MonacoEditor
+      value={phantomRequest?.dump || ''}
+      language="http"
+      readOnly={true}
+      fontSize={11}
+    />
   </div>
 </div> 

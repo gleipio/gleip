@@ -25,6 +25,29 @@ body {
     -ms-user-select: none;
 }
 
+/* Global cursor styles for clickable elements */
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+select,
+[role="button"],
+[role="menuitem"],
+[tabindex="0"]:not(input):not(textarea),
+.cursor-pointer {
+    cursor: pointer;
+}
+
+/* Ensure disabled elements show not-allowed cursor */
+button:disabled,
+input:disabled,
+select:disabled,
+.cursor-not-allowed {
+    cursor: not-allowed;
+}
+
 /* Utility class to enable text selection in specific divs */
 .selectable {
     user-select: text;

@@ -1,5 +1,12 @@
+2025.06.30
+✨ What's New
+- Intercept UI improvements
+
+🐛 Bug Fixing
+- Buttons correctly show clickable pointer
+
 2025.06.24
-✨ New Features
+✨ What's New
 - Suggested requests: GleipFlows will now present suggestions on which request to add next!
 
 2025.06.11-2
@@ -16,5 +23,5 @@
 - Telemetry now initializes properly
 
 2025.06.09
-✨ New Features
+✨ What's New
 - Steps can now be added contextually between other steps

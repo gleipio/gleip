@@ -1,17 +1,12 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { LaunchFirefoxBrowser, CheckFirefoxInstallation, DownloadFirefox, GetFirefoxDownloadProgress, IsFirefoxDownloading, UninstallFirefox, GetAppVersion } from '../../../wailsjs/go/backend/App';
+  import { onMount } from 'svelte';
+  import { GetAppVersion } from '../../../wailsjs/go/backend/App';
   import { GetSettings, UpdateSettings } from '../../../wailsjs/go/backend/SettingsController';
   import Button from '../../components/ui/Button.svelte';
+  import FirefoxManager from '../../components/ui/FirefoxManager.svelte';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
 
   // Interface definitions
-  type DownloadProgress = {
-    progress: number;
-    status: string;
-    error?: string;
-  };
-
   type GleipSettings = {
     telemetryEnabled: boolean;
     userId?: string;
@@ -27,17 +22,7 @@
   };
 
   // State
-  let isLaunching = false;
-  let browserRunning = false;
   let error: string | null = null;
-  let isFirefoxInstalled = false;
-  let isDownloading = false;
-  let isUninstalling = false;
-  let downloadProgress: DownloadProgress = {
-    progress: 0,
-    status: ''
-  };
-  let progressCheckInterval: number | undefined;
   let showCopiedNotification = false;
   let settings: GleipSettings = { 
     telemetryEnabled: true,
@@ -91,88 +76,9 @@
     }
   }
 
-  async function launchBrowser() {
-    isLaunching = true;
-    error = null;
-    
-    try {
-      await LaunchFirefoxBrowser();
-      browserRunning = true;
-    } catch (err) {
-      if (err instanceof Error) {
-        error = err.message;
-      } else {
-        error = String(err);
-      }
-    } finally {
-      isLaunching = false;
-    }
-  }
-
-  async function checkFirefoxInstallation() {
-    try {
-      isFirefoxInstalled = await CheckFirefoxInstallation();
-    } catch (err) {
-      if (err instanceof Error) {
-        error = err.message;
-      } else {
-        error = String(err);
-      }
-    }
-  }
-
-  async function downloadFirefox() {
-    try {
-      isDownloading = true;
-      error = null;
-      await DownloadFirefox();
-      
-      // Check progress
-      progressCheckInterval = window.setInterval(async () => {
-        try {
-          const isStillDownloading = await IsFirefoxDownloading();
-          if (!isStillDownloading) {
-            clearInterval(progressCheckInterval);
-            isDownloading = false;
-            await checkFirefoxInstallation();
-          } else {
-            downloadProgress = await GetFirefoxDownloadProgress();
-          }
-        } catch (err) {
-          clearInterval(progressCheckInterval);
-          isDownloading = false;
-          if (err instanceof Error) {
-            error = err.message;
-          } else {
-            error = String(err);
-          }
-        }
-      }, 500);
-    } catch (err) {
-      isDownloading = false;
-      if (err instanceof Error) {
-        error = err.message;
-      } else {
-        error = String(err);
-      }
-    }
-  }
-
-  async function uninstallFirefox() {
-    try {
-      isUninstalling = true;
-      error = null;
-      await UninstallFirefox();
-      await checkFirefoxInstallation();
-    } catch (err) {
-      if (err instanceof Error) {
-        error = err.message;
-      } else {
-        error = String(err);
-      }
-    } finally {
-      isUninstalling = false;
-    }
+  // Callback functions for FirefoxManager
+  function handleFirefoxError(errorMessage: string) {
+    error = errorMessage;
   }
 
   // Copy proxy address to clipboard
@@ -223,43 +129,8 @@
 
   // Initialize
   onMount(async () => {
-    await checkFirefoxInstallation();
     await loadSettings();
     await loadAppVersion();
-    
-    // Check if still downloading
-    const stillDownloading = await IsFirefoxDownloading();
-    if (stillDownloading) {
-      isDownloading = true;
-      
-      // Check progress
-      progressCheckInterval = window.setInterval(async () => {
-        try {
-          const isStillDownloading = await IsFirefoxDownloading();
-          if (!isStillDownloading) {
-            clearInterval(progressCheckInterval);
-            isDownloading = false;
-            await checkFirefoxInstallation();
-          } else {
-            downloadProgress = await GetFirefoxDownloadProgress();
-          }
-        } catch (err) {
-          clearInterval(progressCheckInterval);
-          isDownloading = false;
-          if (err instanceof Error) {
-            error = err.message;
-          } else {
-            error = String(err);
-          }
-        }
-      }, 500);
-    }
-  });
-
-  onDestroy(() => {
-    if (progressCheckInterval) {
-      clearInterval(progressCheckInterval);
-    }
   });
 </script>
 
@@ -282,67 +153,9 @@
       
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <!-- Firefox Browser -->
-        <div class="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
-          <div class="flex justify-between items-center mb-1">
-            <h3 class="text-base font-semibold text-gray-50">Firefox Browser</h3>
-            <p class="text-gray-500 text-xs">
-              Status: <span class="text-gray-100">{isFirefoxInstalled ? 'Installed' : 'Not installed'}</span>
-            </p>
-          </div>
-          
-          <p class="text-gray-50 text-sm mb-4">
-            Dedicated Firefox browser with proxy pre-configured.
-          </p>
-          
-          <!-- Main Action Button (Mutually Exclusive) -->
-          {#if isFirefoxInstalled}
-            <Button 
-              on:click={launchBrowser}
-              disabled={isLaunching}
-              fullWidth={true}
-              loading={isLaunching}
-              variant="primary"
-              size="md"
-            >
-              {isLaunching ? 'Launching...' : 'Launch Browser'}
-            </Button>
-          {:else if isDownloading}
-            <div>
-              <p class="text-gray-50 text-xs mb-1">Downloading: {downloadProgress?.status}</p>
-              <div class="w-full bg-gray-700 rounded-full h-1.5 mb-1">
-                <div class="bg-[var(--color-midnight-accent)] h-1.5 rounded-full" style="width: {downloadProgress?.progress * 100}%"></div>
-              </div>
-              <p class="text-gray-500 text-xs text-right">{(downloadProgress?.progress * 100).toFixed(1)}%</p>
-            </div>
-          {:else}
-            <Button 
-              on:click={downloadFirefox}
-              disabled={isDownloading}
-              fullWidth={true}
-              loading={isDownloading}
-              variant="primary"
-              size="md"
-            >
-              Download Firefox
-            </Button>
-          {/if}
-          
-          <!-- Secondary Action -->
-          {#if isFirefoxInstalled}
-            <div class="flex justify-end mt-3 text-xs">
-              <Button 
-                on:click={uninstallFirefox}
-                disabled={isUninstalling}
-                variant="link"
-                size="xs"
-                withGradientHover={false}
-                class={isUninstalling ? 'opacity-50 cursor-not-allowed' : 'text-gray-500 hover:text-red-400'}
-              >
-                {isUninstalling ? 'Uninstalling...' : 'Uninstall'}
-              </Button>
-            </div>
-          {/if}
-        </div>
+        <FirefoxManager 
+          onError={handleFirefoxError}
+        />
         
         <!-- Chromium Browser (Greyed Out) -->
         <div class="bg-gray-800/30 rounded-lg p-3 border border-gray-700/30 relative overflow-hidden opacity-70">
@@ -373,11 +186,7 @@
         </div>
       </div>
       
-      {#if browserRunning}
-        <div class="bg-green-900/20 border border-green-800 rounded p-2 mb-4 text-green-300 text-sm">
-          Browser launched successfully. You can now browse with the proxy configured.
-        </div>
-      {/if}
+
       
       <!-- Manual Configuration -->
       <div class="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">

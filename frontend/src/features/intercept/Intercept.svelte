@@ -4,6 +4,7 @@
   import { network } from '../../../wailsjs/go/models';
   import { getMethodColor } from '../../shared/utils/httpColors';
   import MonacoEditor from '../../components/monaco/MonacoEditor.svelte';
+  import BrowserButton from '../../components/ui/BrowserButton.svelte';
   import { interceptEnabled, updateInterceptState } from './store/interceptStore';
   import { GetRequestMethod, GetRequestURL } from '../../../wailsjs/go/network/HTTPHelper';
 
@@ -20,6 +21,14 @@
   
   // Local variable that syncs with the store for binding
   let localInterceptEnabled = false;
+  
+  // UI state for resizing
+  let splitPosition = 55; // Default 55% for top section (request list)
+  let isDragging = false;
+  let detailsSplitPosition = 50; // Default 50% for request panel
+  let isDetailsDragging = false;
+  let containerRef: HTMLDivElement;
+  let detailsContainerRef: HTMLDivElement;
   
   // Sync local variable with store
   $: localInterceptEnabled = $interceptEnabled;
@@ -200,8 +209,94 @@
     }
   }
   
-
+  // Handle mouse down for vertical split position
+  function handleMouseDown(e: MouseEvent): void {
+    e.preventDefault();
+    isDragging = true;
+  }
   
+  // Handle mouse down for horizontal split position
+  function handleDetailsMouseDown(e: MouseEvent): void {
+    e.preventDefault();
+    isDetailsDragging = true;
+  }
+  
+  // Handle mouse move for vertical split
+  function handleMouseMove(e: MouseEvent): void {
+    if (!isDragging || !containerRef) return;
+    
+    const containerRect = containerRef.getBoundingClientRect();
+    const containerHeight = containerRect.height;
+    const relativeY = e.clientY - containerRect.top;
+    
+    // Calculate percentage (constrained between 20% and 80%)
+    const newPosition = Math.min(80, Math.max(20, (relativeY / containerHeight) * 100));
+    splitPosition = newPosition;
+  }
+  
+  // Handle mouse move for horizontal split
+  function handleDetailsMouseMove(e: MouseEvent): void {
+    if (!isDetailsDragging || !detailsContainerRef) return;
+    
+    const containerRect = detailsContainerRef.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const relativeX = e.clientX - containerRect.left;
+    
+    // Calculate percentage (constrained between 20% and 80%)
+    const newPosition = Math.min(80, Math.max(20, (relativeX / containerWidth) * 100));
+    detailsSplitPosition = newPosition;
+  }
+  
+  // Handle mouse up for both splits
+  function handleMouseUp() {
+    isDragging = false;
+    isDetailsDragging = false;
+  }
+  
+  // Combine the keydown handlers for the vertical resize handle
+  function handleCombinedKeyDown(e: KeyboardEvent): void {
+    // Only handle keyboard events when the resize handle has focus
+    if (!e.currentTarget || e.currentTarget !== document.activeElement) return;
+    
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      isDragging = true;
+    } else if (isDragging) {
+      if (e.key === 'ArrowUp') {
+        splitPosition = Math.max(20, splitPosition - 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        splitPosition = Math.min(80, splitPosition + 1);
+        e.preventDefault();
+      } else if (e.key === 'Escape') {
+        isDragging = false;
+        e.preventDefault();
+      }
+    }
+  }
+  
+  // Combine the keydown handlers for the horizontal resize handle
+  function handleCombinedDetailsKeyDown(e: KeyboardEvent): void {
+    // Only handle keyboard events when the resize handle has focus
+    if (!e.currentTarget || e.currentTarget !== document.activeElement) return;
+    
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      isDetailsDragging = true;
+    } else if (isDetailsDragging) {
+      if (e.key === 'ArrowLeft') {
+        detailsSplitPosition = Math.max(20, detailsSplitPosition - 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        detailsSplitPosition = Math.min(80, detailsSplitPosition + 1);
+        e.preventDefault();
+      } else if (e.key === 'Escape') {
+        isDetailsDragging = false;
+        e.preventDefault();
+      }
+    }
+  }
+
   onMount(() => {
     // Load requests immediately on mount
     loadRequests();
@@ -209,19 +304,32 @@
     // Set up polling
     loadRequestsInterval = window.setInterval(loadRequests, 500);
     
+    // Setup event listeners for dragging
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mousemove', handleDetailsMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
     return () => {
       if (loadRequestsInterval) {
         clearInterval(loadRequestsInterval);
       }
+      
+      // Remove event listeners
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mousemove', handleDetailsMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
     };
   });
 </script>
 
-<div class="grid grid-cols-2 h-full">
-  <!-- Left column - Request list -->
-  <div class="border-r border-gray-700/50">
-    <div class="h-14 border-b border-gray-700/50 bg-gray-800/30 px-4 grid grid-cols-[1fr,auto] items-center">
-      <h2 class="text-lg font-medium text-gray-100">Intercepted Requests</h2>
+<div bind:this={containerRef} class="flex flex-col h-full overflow-hidden relative">
+  <!-- Top section - Request list -->
+  <div 
+    class="flex flex-col overflow-hidden"
+    style={`height: ${splitPosition}%`}
+  >
+    <div class="h-14 border-b border-gray-700/50 bg-gray-800/30 px-4 flex items-center justify-between">
+      <BrowserButton variant="primary" size="sm" />
       <label class="flex items-center cursor-pointer">
         <div class="relative">
           <input
@@ -283,11 +391,24 @@
     </div>
   </div>
 
-  <!-- Right column - Details -->
-  <div class="flex flex-col">
-    <div class="h-14 border-b border-gray-700/50 bg-gray-800/30 px-4 flex items-center justify-between">
-      <h2 class="text-lg font-medium text-gray-100">Details</h2>
-      {#if selectedRequest}
+  <!-- Resize handle -->
+  <button 
+    class={`h-1 w-full bg-gray-700 hover:bg-gray-600 cursor-ns-resize absolute left-0 right-0 z-10 ${isDragging ? 'bg-gray-600' : ''} focus:outline-none focus:ring-2 focus:ring-gray-500`}
+    style={`top: ${splitPosition}%; transform: translateY(-50%); border: none;`}
+    on:mousedown={handleMouseDown}
+    on:keydown={handleCombinedKeyDown}
+    aria-label="Resize panels vertically"
+  ></button>
+
+  <!-- Bottom section - Request/Response details -->
+  <div 
+    class="flex flex-col border-t border-gray-700/50 relative overflow-hidden"
+    style={`height: ${100 - splitPosition}%`}
+  >
+    {#if selectedRequest}
+      <!-- Details header with buttons -->
+      <div class="h-14 border-b border-gray-700/50 bg-gray-800/30 px-4 flex items-center justify-between">
+        <h2 class="text-lg font-medium text-gray-100">Details</h2>
         <div class="flex gap-2">
           {#if !selectedRequest.response && !isWaitingForResponse}
             <button 
@@ -316,56 +437,79 @@
             Cancel
           </button>
         </div>
-      {/if}
-    </div>
+      </div>
+      
+      <div bind:this={detailsContainerRef} class="flex h-[calc(100%-3.5rem)] relative">
+        <!-- Request section -->
+        <div 
+          class="h-full flex flex-col overflow-hidden border-r border-gray-700/50"
+          style={`width: ${detailsSplitPosition}%`}
+        >
+          <div class="flex-1 bg-gray-800/30 flex flex-col overflow-hidden">
+            <div class="px-4 py-2 border-b border-gray-700/50">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-medium text-gray-100">Request</h3>
+              </div>
+            </div>
+            <div class="flex-1 overflow-hidden">
+              <MonacoEditor
+                bind:value={requestContent}
+                language="http"
+                readOnly={false}
+                fontSize={12}
+                on:change={(e) => {
+                  requestContent = e.detail.value;
+                }}
+              />
+            </div>
+          </div>
+        </div>
 
-    <div class="flex-1 flex flex-col overflow-hidden">
-      {#if selectedRequest}
-        <!-- Request Editor -->
-        <div class="flex-1 flex flex-col border-b border-gray-700/50">
-          <div class="h-8 bg-gray-800/30 px-4 flex items-center border-b border-gray-700/50">
-            <h3 class="text-sm font-medium text-gray-100">Request</h3>
-          </div>
-          <div class="flex-1">
-            <MonacoEditor
-              bind:value={requestContent}
-              language="http"
-              readOnly={false}
-              fontSize={12}
-              on:change={(e) => {
-                requestContent = e.detail.value;
-              }}
-            />
-          </div>
-        </div>
+        <!-- Horizontal Resize Handle -->
+        <button 
+          class={`w-1 h-full bg-gray-700 hover:bg-gray-600 cursor-col-resize absolute z-10 ${isDetailsDragging ? 'bg-gray-600' : ''} focus:outline-none focus:ring-2 focus:ring-gray-500`}
+          style={`left: ${detailsSplitPosition}%; transform: translateX(-50%); border: none;`}
+          on:mousedown={handleDetailsMouseDown}
+          on:keydown={handleCombinedDetailsKeyDown}
+          aria-label="Resize panels horizontally"
+        ></button>
 
-        <!-- Response Editor -->
-        <div class="flex-1 flex flex-col">
-          <div class="h-8 bg-gray-800/30 px-4 flex items-center border-b border-gray-700/50">
-            <h3 class="text-sm font-medium text-gray-100">
-              Response
-              {#if isWaitingForResponse}
-                <span class="text-yellow-400 ml-2">(Waiting...)</span>
-              {/if}
-            </h3>
-          </div>
-          <div class="flex-1">
-            <MonacoEditor
-              bind:value={responseContent}
-              language="http"
-              readOnly={!selectedRequest.response}
-              fontSize={12}
-              on:change={(e) => {
-                responseContent = e.detail.value;
-              }}
-            />
+        <!-- Response section -->
+        <div 
+          class="h-full flex flex-col overflow-hidden"
+          style={`width: ${100 - detailsSplitPosition}%`}
+        >
+          <div class="flex-1 bg-gray-800/30 flex flex-col overflow-hidden">
+            <div class="px-4 py-2 border-b border-gray-700/50">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-medium text-gray-100">Response</h3>
+                {#if isWaitingForResponse}
+                  <span class="text-yellow-400 text-sm">(Waiting...)</span>
+                {/if}
+              </div>
+            </div>
+            <div class="flex-1 overflow-hidden">
+              <MonacoEditor
+                bind:value={responseContent}
+                language="http"
+                readOnly={!selectedRequest.response}
+                fontSize={12}
+                on:change={(e) => {
+                  responseContent = e.detail.value;
+                }}
+              />
+            </div>
           </div>
         </div>
-      {:else}
-        <div class="flex-1 flex items-center justify-center text-gray-50">
-          Select a request to view details
+      </div>
+    {:else}
+      <!-- Empty state when no request is selected -->
+      <div class="flex-1 flex items-center justify-center">
+        <div class="text-center text-gray-400">
+          <div class="text-lg font-medium mb-2">No Request Selected</div>
+          <div class="text-sm">Intercepted requests will appear here when you select them from the list above</div>
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </div>
 </div> 

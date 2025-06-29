@@ -1,3 +1,7 @@
+2025.06.24
+✨ New Features
+- Suggested requests: GleipFlows will now present suggestions on which request to add next!
+
 2025.06.11-2
 🐛 Bug Fixing
 -Firefox will no longer reach out to any unnecessary URLs

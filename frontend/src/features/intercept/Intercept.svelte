@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GetInterceptedRequests, SetInterceptEnabled, ModifyInterceptedRequest, ModifyInterceptedResponse, ForwardRequestAndWaitForResponse, ForwardRequestImmediately } from '../../../wailsjs/go/backend/App';
+  import { GetInterceptedRequests, SetInterceptEnabled, ModifyInterceptedRequest, ModifyInterceptedResponse, ForwardRequestAndWaitForResponse, ForwardRequestImmediately, CopyRequestToClipboard, CopyRequestToSelectedFlow } from '../../../wailsjs/go/backend/App';
   import { network } from '../../../wailsjs/go/models';
   import { getMethodColor } from '../../shared/utils/httpColors';
   import MonacoEditor from '../../components/monaco/MonacoEditor.svelte';
   import BrowserButton from '../../components/ui/BrowserButton.svelte';
+  import ContextMenu from '../../shared/components/ContextMenu.svelte';
+  import Notification from '../../shared/components/Notification.svelte';
   import { interceptEnabled, updateInterceptState } from './store/interceptStore';
   import { GetRequestMethod, GetRequestURL } from '../../../wailsjs/go/network/HTTPHelper';
 
@@ -22,6 +24,14 @@
   // Local variable that syncs with the store for binding
   let localInterceptEnabled = false;
   
+  // Context menu state
+  let showContextMenu = false;
+  let contextMenuX = 0;
+  let contextMenuY = 0;
+  let contextMenuRequest: HTTPTransaction | null = null;
+  let showCopiedNotification = false;
+  let notificationMessage = '';
+  
   // UI state for resizing
   let splitPosition = 55; // Default 55% for top section (request list)
   let isDragging = false;
@@ -34,6 +44,11 @@
   $: localInterceptEnabled = $interceptEnabled;
   $: if (localInterceptEnabled !== $interceptEnabled) {
     updateInterceptState(localInterceptEnabled);
+  }
+
+  // Auto-select the first request if none is selected and requests exist
+  $: if (requests.length > 0 && !selectedRequest) {
+    selectRequest(requests[0]);
   }
   
   // Load intercepted requests
@@ -99,10 +114,37 @@
       console.error('Failed to toggle interception:', error);
     }
   }
+
+  // Select next request after current one is removed
+  function selectNextRequest(removedRequestId: string) {
+    if (requests.length === 0) {
+      selectedRequest = null;
+      editedRequest = null;
+      requestContent = '';
+      responseContent = '';
+      isWaitingForResponse = false;
+      return;
+    }
+
+    const currentIndex = requests.findIndex(req => req.id === removedRequestId);
+    if (currentIndex !== -1) {
+      // Select next request (or first if this was the last)
+      const nextIndex = currentIndex < requests.length - 1 ? currentIndex : 0;
+      const nextRequest = requests[nextIndex];
+      if (nextRequest) {
+        selectRequest(nextRequest);
+      }
+    } else {
+      // If we can't find the removed request, just select the first one
+      selectRequest(requests[0]);
+    }
+  }
   
   // Modify request and forward it
   async function handleModifyRequest() {
     if (!selectedRequest) return;
+    
+    const requestIdToRemove = selectedRequest.id;
     
     try {
       if (selectedRequest.response) {
@@ -147,13 +189,20 @@
         );
       }
       
-      // Remove the forwarded request from the list immediately
-      requests = requests.filter(req => req.id !== selectedRequest?.id);
-      selectedRequest = null;
-      editedRequest = null;
-      requestContent = '';
-      responseContent = '';
-      isWaitingForResponse = false;
+      // Remove the forwarded request from the list and select next
+      const filteredRequests = requests.filter(req => req.id !== requestIdToRemove);
+      requests = filteredRequests;
+      
+      // Select next request
+      if (filteredRequests.length > 0) {
+        selectNextRequest(requestIdToRemove);
+      } else {
+        selectedRequest = null;
+        editedRequest = null;
+        requestContent = '';
+        responseContent = '';
+        isWaitingForResponse = false;
+      }
     } catch (error) {
       console.error('Failed to modify request:', error);
     }
@@ -166,6 +215,92 @@
     requestContent = req.request.dump || '';
     responseContent = req.response?.dump || '';
     isWaitingForResponse = req.waitingForResponse || false;
+  }
+
+  // Handle right-click on table rows
+  function handleRowContextMenu(event: MouseEvent, req: HTTPTransaction) {
+    event.preventDefault();
+    contextMenuRequest = req;
+    contextMenuX = event.clientX;
+    contextMenuY = event.clientY;
+    showContextMenu = true;
+  }
+
+  // Context menu functions
+  function handleContextMenuClose() {
+    showContextMenu = false;
+    contextMenuRequest = null;
+  }
+
+  // Copy request to clipboard
+  async function copyRequestToClipboard() {
+    if (!contextMenuRequest) return;
+    
+    try {
+      await CopyRequestToClipboard(contextMenuRequest.id);
+      
+      notificationMessage = "Request copied to clipboard";
+      showCopiedNotification = true;
+      setTimeout(() => {
+        showCopiedNotification = false;
+      }, 3000);
+      
+      handleContextMenuClose();
+    } catch (error) {
+      console.error('Failed to copy request:', error);
+    }
+  }
+
+  // Copy request to selected flow
+  async function copyRequestToSelectedFlow() {
+    if (!contextMenuRequest) return;
+    
+    try {
+      await CopyRequestToSelectedFlow(contextMenuRequest.id);
+      
+      notificationMessage = "Request added to selected flow";
+      showCopiedNotification = true;
+      setTimeout(() => {
+        showCopiedNotification = false;
+      }, 3000);
+      
+      handleContextMenuClose();
+    } catch (error) {
+      console.error('Failed to copy request to selected flow:', error);
+    }
+  }
+
+  // Get context menu items
+  function getContextMenuItems() {
+    return [
+      { label: 'Copy Request', onClick: copyRequestToClipboard },
+      { label: 'Copy to Current Flow', onClick: copyRequestToSelectedFlow }
+    ];
+  }
+
+  // Keyboard navigation for request list
+  function handleKeyDown(e: KeyboardEvent) {
+    if (!requests.length) return;
+    
+    // Don't interfere with context menu navigation
+    if (showContextMenu) return;
+    
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      
+      const currentIndex = selectedRequest ? requests.findIndex(req => req.id === selectedRequest!.id) : -1;
+      let newIndex = currentIndex;
+      
+      if (e.key === 'ArrowUp') {
+        newIndex = currentIndex > 0 ? currentIndex - 1 : requests.length - 1;
+      } else if (e.key === 'ArrowDown') {
+        newIndex = currentIndex < requests.length - 1 ? currentIndex + 1 : 0;
+      }
+      
+      if (newIndex >= 0 && newIndex < requests.length) {
+        selectRequest(requests[newIndex]);
+      }
+    }
   }
 
   // Forward request and wait for response
@@ -309,6 +444,9 @@
     document.addEventListener('mousemove', handleDetailsMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     
+    // Add keyboard listener for request navigation
+    document.addEventListener('keydown', handleKeyDown);
+    
     return () => {
       if (loadRequestsInterval) {
         clearInterval(loadRequestsInterval);
@@ -318,6 +456,7 @@
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mousemove', handleDetailsMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   });
 </script>
@@ -357,6 +496,7 @@
           {#each requests as req}
             <tr
               on:click={() => selectRequest(req)}
+              on:contextmenu|preventDefault={(e) => handleRowContextMenu(e, req)}
               class={`cursor-pointer ${
                 selectedRequest?.id === req.id 
                   ? 'bg-gray-700/50' 
@@ -508,8 +648,29 @@
         <div class="text-center text-gray-400">
           <div class="text-lg font-medium mb-2">No Request Selected</div>
           <div class="text-sm">Intercepted requests will appear here when you select them from the list above</div>
+          <div class="text-xs mt-2 text-gray-500">Use ↑/↓ arrows to navigate between requests</div>
+          <div class="text-xs mt-1 text-gray-500">Right-click on a request for more options</div>
         </div>
       </div>
     {/if}
   </div>
-</div> 
+</div>
+
+<!-- Context Menu -->
+{#if showContextMenu && contextMenuRequest}
+  <ContextMenu 
+    x={contextMenuX} 
+    y={contextMenuY} 
+    onClose={handleContextMenuClose}
+    items={getContextMenuItems()}
+  />
+{/if}
+
+<!-- Notification -->
+{#if showCopiedNotification}
+  <Notification 
+    message={notificationMessage}
+    type="success"
+    duration={3000}
+  />
+{/if} 

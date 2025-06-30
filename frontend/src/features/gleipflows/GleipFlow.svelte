@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { ClipboardGetText, EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
-  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition, GetPhantomRequests, AddPhantomRequestToGleipFlow } from '../../../wailsjs/go/backend/App';
+  import { StartFuzzing, SetSelectedGleipFlowID, GetSelectedGleipFlowID, DuplicateGleipFlow, RenameGleipFlow, AddStepToGleipFlowAtPosition, GetPhantomRequests, AddPhantomRequestToGleipFlow, UpdateGleipFlowVariables } from '../../../wailsjs/go/backend/App';
   import * as monaco from 'monaco-editor';
   import GleipStepCard from './components/GleipFlowStepCard.svelte';
   import AddStepButtons from './components/AddStepButtons.svelte';
@@ -58,6 +58,18 @@
   let renamingFlowId = '';
   let renamingFlowName = '';
   
+  // Listen for step execution updates from backend
+  const handleStepExecuted = (event: any) => {
+    console.log("Received step execution event:", event);
+    const { gleipFlowId, currentStepIndex, results } = event;
+    
+    // Reload complete flow data to get updated action previews and execution results
+    if ($activeGleipFlow && $activeGleipFlow.id === gleipFlowId) {
+      console.log(`Reloading flow data to get updated action previews for step ${currentStepIndex}`);
+      loadGleipFlows();
+    }
+  };
+
   // Listen for fuzz updates from backend
   const handleFuzzUpdate = (event: any) => {
     console.log("Received fuzz update event:", event);
@@ -171,14 +183,16 @@
     // Set up keyboard event listener for paste
     window.addEventListener('keydown', handleKeyDown);
     
-    // Setup event listener for fuzz updates - moved here to the main onMount
-    console.log("Setting up gleipFlow:fuzzUpdate event listener");
+    // Setup event listeners for real-time updates
+    console.log("Setting up gleipFlow event listeners");
+    EventsOn('gleipFlow:stepExecuted', handleStepExecuted);
     EventsOn('gleipFlow:fuzzUpdate', handleFuzzUpdate);
     
     // Return cleanup function
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      console.log("Removing gleipFlow:fuzzUpdate event listener");
+      console.log("Removing gleipFlow event listeners");
+      EventsOff('gleipFlow:stepExecuted');
       EventsOff('gleipFlow:fuzzUpdate');
     };
   });
@@ -397,21 +411,17 @@
     const { stepIndex, stepType, updates } = event.detail;
     
     if (stepIndex === 0 && stepType === 'variables') {
-      // Handle variables step specially - update the gleip's variables
+      // Handle variables step specially - use the new backend method that auto-executes chef steps
       if (updates.variables !== undefined && $activeGleipFlowIndex !== null) {
         const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
-        const updatedGleipFlow = {
-          ...currentGleipFlow,
-          variables: updates.variables
-        };
         
-        gleipFlows.set([
-          ...$gleipFlows.slice(0, $activeGleipFlowIndex),
-          updatedGleipFlow,
-          ...$gleipFlows.slice($activeGleipFlowIndex + 1)
-        ]);
-        
-        updateGleipFlow(updatedGleipFlow);
+        // Call the new backend method that updates variables and executes enabled chef steps
+        // The step execution events will automatically trigger data reload to get updated action previews
+        UpdateGleipFlowVariables(currentGleipFlow.id, updates.variables)
+          .catch((error: any) => {
+            console.error('Failed to update variables:', error);
+            showNotification(`Error updating variables: ${error.message || 'Unknown error'}`);
+          });
       }
       return;
     }
@@ -480,6 +490,7 @@
     
     const stepId = step.stepType === 'request' ? step.requestStep?.stepAttributes.id : 
                  step.stepType === 'script' ? step.scriptStep?.stepAttributes.id : 
+                 step.stepType === 'chef' ? step.chefStep?.stepAttributes.id :
                  $activeGleipFlow.id + '-variables';
     
     if (stepId && $activeGleipFlow.executionResults) {
@@ -790,6 +801,15 @@
     return null;
   }
 
+  // Check if the flow has any request steps
+  function hasRequestSteps() {
+    if (!$activeGleipFlow || $activeGleipFlow.steps.length === 0) {
+      return false;
+    }
+    
+    return $activeGleipFlow.steps.some(step => step.stepType === 'request' && step.requestStep);
+  }
+
   // Handle adding a phantom request to the flow
   async function handleAddPhantomRequest(event: CustomEvent) {
     const { phantomRequest } = event.detail;
@@ -945,12 +965,14 @@
             </div>
           {/each}
           
-          <!-- Phantom requests section -->
-          <PhantomRequestsSection
-            gleipFlowId={$gleipFlows[$activeGleipFlowIndex].id}
-            lastRequestInFlow={getLastRequestInFlow()}
-            on:addPhantomRequest={handleAddPhantomRequest}
-          />
+          <!-- Phantom requests section - only show if flow has at least one request -->
+          {#if hasRequestSteps()}
+            <PhantomRequestsSection
+              gleipFlowId={$gleipFlows[$activeGleipFlowIndex].id}
+              lastRequestInFlow={getLastRequestInFlow()}
+              on:addPhantomRequest={handleAddPhantomRequest}
+            />
+          {/if}
         </div>
       {:else}
         <div class="flex items-center justify-center h-64 text-gray-500">

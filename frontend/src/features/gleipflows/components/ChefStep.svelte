@@ -48,6 +48,7 @@
     isOpen: boolean;
     searchTerm: string;
     filteredActions: Record<string, string>[];
+    userIsTyping: boolean; // Track if user is actively typing
   }> = {};
   
   // Load available actions on mount
@@ -73,6 +74,21 @@
       document.removeEventListener('click', handleGlobalClick);
     };
   });
+
+  // Update dropdown search terms when availableActions loads or actions change
+  $: if (availableActions.length > 0 && safeActions.length > 0) {
+    // Update search terms for existing dropdowns to show the selected action names
+    // Only update if user is not actively typing
+    safeActions.forEach((action, index) => {
+      if (action.actionType && searchableDropdowns[index] && !searchableDropdowns[index].userIsTyping) {
+        const actionName = availableActions.find(a => a.id === action.actionType)?.name || '';
+        if (actionName && searchableDropdowns[index].searchTerm !== actionName) {
+          searchableDropdowns[index].searchTerm = actionName;
+        }
+      }
+    });
+    searchableDropdowns = { ...searchableDropdowns }; // Trigger reactivity
+  }
   
   // Initialize dropdown state for an action
   function initDropdownState(index: number) {
@@ -80,13 +96,14 @@
       // Get the current action type to initialize the search term
       const currentAction = safeActions[index];
       const currentActionType = currentAction?.actionType;
-      const currentActionName = currentActionType ? 
+      const currentActionName = currentActionType && availableActions.length > 0 ? 
         availableActions.find(a => a.id === currentActionType)?.name || '' : '';
       
       searchableDropdowns[index] = {
         isOpen: false,
         searchTerm: currentActionName,
-        filteredActions: availableActions
+        filteredActions: availableActions,
+        userIsTyping: false
       };
     }
   }
@@ -109,8 +126,18 @@
     initDropdownState(index);
     searchableDropdowns[index].searchTerm = value;
     searchableDropdowns[index].isOpen = true;
+    searchableDropdowns[index].userIsTyping = true; // User is actively typing
     filterActions(index, value);
     searchableDropdowns = { ...searchableDropdowns }; // Trigger reactivity
+  }
+
+  // Handle focus - prepare for user to potentially replace the current action
+  function handleFocus(index: number) {
+    initDropdownState(index);
+    searchableDropdowns[index].userIsTyping = true;
+    searchableDropdowns[index].isOpen = true;
+    filterActions(index, searchableDropdowns[index].searchTerm);
+    searchableDropdowns = { ...searchableDropdowns };
   }
   
   // Toggle dropdown
@@ -127,6 +154,7 @@
   function selectAction(index: number, actionId: string, actionName: string) {
     searchableDropdowns[index].searchTerm = actionName;
     searchableDropdowns[index].isOpen = false;
+    searchableDropdowns[index].userIsTyping = false; // User finished selecting
     searchableDropdowns = { ...searchableDropdowns }; // Trigger reactivity
     updateActionType(index, actionId);
   }
@@ -135,6 +163,7 @@
   function closeDropdown(index: number) {
     if (searchableDropdowns[index]) {
       searchableDropdowns[index].isOpen = false;
+      searchableDropdowns[index].userIsTyping = false; // Reset typing flag when closing
       searchableDropdowns = { ...searchableDropdowns }; // Trigger reactivity
     }
   }
@@ -164,6 +193,16 @@
         actionType,
         preview: '' // Reset preview when action type changes
     });
+
+    // Update the search term to show the selected action name
+    if (searchableDropdowns[index] && actionType && availableActions.length > 0) {
+      const actionName = availableActions.find(a => a.id === actionType)?.name || '';
+      if (actionName) {
+        searchableDropdowns[index].searchTerm = actionName;
+        searchableDropdowns[index].userIsTyping = false; // This is a programmatic update
+        searchableDropdowns = { ...searchableDropdowns }; // Trigger reactivity
+      }
+    }
       
       // Regenerate all previews sequentially since changing one action affects all subsequent ones
       if (actionType) {
@@ -333,15 +372,12 @@
                       placeholder="Search actions..."
                       bind:value={searchableDropdowns[idx].searchTerm}
                       on:input={(e) => handleSearchInput(idx, e.currentTarget.value)}
-                      on:focus={() => {
-                        searchableDropdowns[idx].isOpen = true;
-                        filterActions(idx, searchableDropdowns[idx].searchTerm);
-                        searchableDropdowns = { ...searchableDropdowns };
-                      }}
+                      on:focus={() => handleFocus(idx)}
                     />
                     <button
                       type="button"
                       class="px-2 py-1 bg-gray-700 border border-l-0 border-gray-600 rounded-r text-gray-100 text-sm hover:bg-gray-600 focus:outline-none focus:border-blue-400"
+                      aria-label="Toggle actions dropdown"
                       on:click={() => toggleDropdown(idx)}
                     >
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -384,7 +420,7 @@
             {#if action.preview}
               <div class="mt-2">
                 <h3 class="text-xs text-gray-400">
-                  {index === 0 ? 'Preview (from input):' : `Preview (from action ${index}):`}
+                  Preview:
                 </h3>
                 <div class="mt-1 p-2 bg-gray-900 rounded text-xs text-gray-300 font-mono max-h-20 overflow-y-auto">
                   {action.preview}

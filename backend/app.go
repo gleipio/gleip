@@ -388,10 +388,11 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 
 	results, err := a.gleipFlowExecutor.ExecuteGleipFlow(gleipFlow)
 	if err == nil {
-		// DIRECTLY update the cached GleipFlow with execution results
+		// DIRECTLY update the cached GleipFlow with execution results AND updated steps (action previews)
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
 			cachedFlow.ExecutionResults = results
+			cachedFlow.Steps = gleipFlow.Steps // Update steps array (contains updated action previews)
 			// Merge execution result variables into flow variables
 			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
 				fmt.Printf("Merged execution result variables into cached flow %s\n", gleipFlowID)
@@ -399,12 +400,13 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 		}
 		a.gleipFlowsMutex.Unlock()
 
-		// DIRECTLY update the project GleipFlow with execution results
+		// DIRECTLY update the project GleipFlow with execution results AND updated steps (action previews)
 		a.projectMutex.Lock()
 		if a.currentProject != nil {
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
 					projectFlow.ExecutionResults = results
+					projectFlow.Steps = gleipFlow.Steps // Update steps array (contains updated action previews)
 					// Merge execution result variables into flow variables
 					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
 						fmt.Printf("Merged execution result variables into project flow %s\n", gleipFlowID)
@@ -415,7 +417,7 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 		}
 		a.projectMutex.Unlock()
 
-		// Request auto-save since we've modified gleipFlow data (including execution results)
+		// Request auto-save since we've modified gleipFlow data (including execution results and action previews)
 		a.requestAutoSaveWithComponent("gleip_flows")
 	}
 
@@ -459,10 +461,11 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 	// Execute with the modified selections
 	results, err := a.gleipFlowExecutor.ExecuteGleipFlow(&flowCopy)
 	if err == nil {
-		// Update execution results in the original flow (not the copy)
+		// Update execution results and steps (action previews) in the original flow (not the copy)
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
 			cachedFlow.ExecutionResults = results
+			cachedFlow.Steps = flowCopy.Steps // Update steps array from the executed copy (contains updated action previews)
 			// Merge execution result variables into flow variables
 			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
 				fmt.Printf("Merged execution result variables into cached flow %s (single step)\n", gleipFlowID)
@@ -475,6 +478,7 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
 					projectFlow.ExecutionResults = results
+					projectFlow.Steps = flowCopy.Steps // Update steps array from the executed copy (contains updated action previews)
 					// Merge execution result variables into flow variables
 					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
 						fmt.Printf("Merged execution result variables into project flow %s (single step)\n", gleipFlowID)
@@ -1236,13 +1240,205 @@ func (a *App) UpdateGleipFlow(gleipFlow GleipFlow) error {
 		if !found {
 			// Add new GleipFlow to project
 			a.currentProject.GleipFlows = append(a.currentProject.GleipFlows, &gleipFlow)
-			fmt.Printf("DEBUG: Added new flow to project with %d execution results\n", len(gleipFlow.ExecutionResults))
+
 		}
 	}
 	a.projectMutex.Unlock()
 
 	// AUTOMATICALLY save to persist the project changes
 	a.requestAutoSaveWithComponent("gleip_flows")
+
+	return nil
+}
+
+// updateChefStepActionPreviews updates action previews for chef steps that use the given variables
+func (a *App) updateChefStepActionPreviews(gleipFlow *GleipFlow, updatedVarNames map[string]bool) {
+	for stepIndex, step := range gleipFlow.Steps {
+		if step.StepType == "chef" && step.Selected && step.ChefStep != nil {
+			inputVar := step.ChefStep.InputVariable
+			if inputVar != "" && updatedVarNames[inputVar] && gleipFlow.Variables[inputVar] != "" {
+				inputValue := gleipFlow.Variables[inputVar]
+
+				if len(step.ChefStep.Actions) > 0 {
+					previews, err := chef.GetAllSequentialPreviews(step.ChefStep.Actions, inputValue)
+					if err == nil {
+						for i, preview := range previews {
+							if i < len(step.ChefStep.Actions) {
+								gleipFlow.Steps[stepIndex].ChefStep.Actions[i].Preview = preview
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// UpdateGleipFlowVariables updates variables in a gleipFlow and automatically executes all enabled chef steps
+func (a *App) UpdateGleipFlowVariables(gleipFlowID string, variables map[string]string) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Track what variables changed
+	changedVars := make(map[string]string)
+	for varName, newValue := range variables {
+		oldValue, exists := gleipFlow.Variables[varName]
+		if !exists || oldValue != newValue {
+			changedVars[varName] = newValue
+		}
+	}
+
+	// Update the variables
+	if gleipFlow.Variables == nil {
+		gleipFlow.Variables = make(map[string]string)
+	}
+	for varName, value := range variables {
+		gleipFlow.Variables[varName] = value
+	}
+
+	// Update action previews for all enabled chef steps immediately after variable change
+	if len(changedVars) > 0 {
+		// Convert changedVars to a map[string]bool for the helper function
+		changedVarNames := make(map[string]bool)
+		for varName := range changedVars {
+			changedVarNames[varName] = true
+		}
+
+		// Update action previews for chef steps that use the changed variables
+		a.updateChefStepActionPreviews(gleipFlow, changedVarNames)
+
+		// Then execute chef steps and persist everything
+		err = a.executeEnabledChefSteps(gleipFlow, changedVars)
+		if err != nil {
+			// Don't fail the variable update if chef execution fails
+		}
+		// executeEnabledChefSteps already handles persistence, so we're done
+		return nil
+	}
+
+	// If no chef steps were executed, just update the variables in the flow
+	return a.UpdateGleipFlow(*gleipFlow)
+}
+
+// executeEnabledChefSteps executes enabled (selected) chef steps while preventing infinite loops
+func (a *App) executeEnabledChefSteps(gleipFlow *GleipFlow, initiallyChangedVars map[string]string) error {
+	// Create execution context with current variables
+	ctx := NewExecutionContext()
+	ctx.Variables = make(map[string]string)
+	for k, v := range gleipFlow.Variables {
+		ctx.Variables[k] = v
+	}
+
+	// Track which chef steps have been executed to prevent infinite loops
+	executedSteps := make(map[string]bool)
+	// Track which variables have been changed (initially + by chef steps)
+	changedVariables := make(map[string]bool)
+	for varName := range initiallyChangedVars {
+		changedVariables[varName] = true
+	}
+
+	// Keep executing chef steps until no new variables are created
+	hasExecutedSteps := false
+	maxIterations := 10 // Prevent infinite loops
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		stepExecutedThisIteration := false
+
+		for stepIndex, step := range gleipFlow.Steps {
+			if step.StepType == "chef" && step.Selected && step.ChefStep != nil {
+				stepID := step.ChefStep.StepAttributes.ID
+				inputVar := step.ChefStep.InputVariable
+
+				// Skip if already executed
+				if executedSteps[stepID] {
+					continue
+				}
+
+				// Skip if no input variable specified
+				if inputVar == "" {
+					continue
+				}
+
+				// Only execute if the input variable has been changed
+				if !changedVariables[inputVar] {
+					continue
+				}
+
+				// Execute the chef step (action previews already updated earlier)
+				result := a.gleipFlowExecutor.ExecuteChefStep(step.ChefStep, ctx)
+
+				// Mark this step as executed to prevent re-execution
+				executedSteps[stepID] = true
+				stepExecutedThisIteration = true
+				hasExecutedSteps = true
+
+				// Update execution results in the flow
+				if gleipFlow.ExecutionResults == nil {
+					gleipFlow.ExecutionResults = []ExecutionResult{}
+				}
+
+				// Remove any existing result for this step
+				filteredResults := make([]ExecutionResult, 0)
+				for _, existingResult := range gleipFlow.ExecutionResults {
+					if existingResult.StepID != result.StepID {
+						filteredResults = append(filteredResults, existingResult)
+					}
+				}
+				// Add the new result
+				filteredResults = append(filteredResults, result)
+				gleipFlow.ExecutionResults = filteredResults
+
+				// If chef step produced output variables, merge them back into flow variables
+				if result.Success && result.Variables != nil {
+					for varName, varValue := range result.Variables {
+						gleipFlow.Variables[varName] = varValue
+						ctx.Variables[varName] = varValue // Also update the execution context
+						changedVariables[varName] = true  // Mark as changed so other chef steps can use it
+
+					}
+				}
+
+				// Emit step execution event for immediate UI updates
+				if a.gleipFlowExecutor.eventEmitter != nil {
+					a.gleipFlowExecutor.eventEmitter.EmitStepExecuted(gleipFlow.ID, stepIndex, filteredResults)
+				}
+			}
+		}
+
+		// If no steps were executed this iteration, we're done
+		if !stepExecutedThisIteration {
+			break
+		}
+	}
+
+	if hasExecutedSteps {
+		// Update cached flow with new execution results, variables, and updated chef step action previews
+		a.gleipFlowsMutex.Lock()
+		if cachedFlow, exists := a.gleipFlowsCache[gleipFlow.ID]; exists {
+			cachedFlow.ExecutionResults = gleipFlow.ExecutionResults
+			cachedFlow.Variables = gleipFlow.Variables
+			cachedFlow.Steps = gleipFlow.Steps // Update entire steps array to include action preview changes
+		}
+		a.gleipFlowsMutex.Unlock()
+
+		// Update project flow with new execution results, variables, and updated chef step action previews
+		a.projectMutex.Lock()
+		if a.currentProject != nil {
+			for _, projectFlow := range a.currentProject.GleipFlows {
+				if projectFlow.ID == gleipFlow.ID {
+					projectFlow.ExecutionResults = gleipFlow.ExecutionResults
+					projectFlow.Variables = gleipFlow.Variables
+					projectFlow.Steps = gleipFlow.Steps // Update entire steps array to include action preview changes
+					break
+				}
+			}
+		}
+		a.projectMutex.Unlock()
+
+		// Request auto-save since we've modified gleipFlow data
+		a.requestAutoSaveWithComponent("gleip_flows")
+	}
 
 	return nil
 }

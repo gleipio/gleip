@@ -99,7 +99,7 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 			}
 		case "chef":
 			if step.ChefStep != nil {
-				result = e.executeChefStep(step.ChefStep, ctx)
+				result = e.ExecuteChefStep(step.ChefStep, ctx)
 			} else {
 				result = createErrorResult("", "Unknown", "chef", "Chef step is nil")
 			}
@@ -121,6 +121,27 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 
 		// Add the result to the execution context
 		ctx.Results = append(ctx.Results, result)
+
+		// Merge variables from step result back into execution context
+		if result.Variables != nil {
+			for varName, varValue := range result.Variables {
+				ctx.Variables[varName] = varValue
+			}
+		}
+
+		// Update action previews for subsequent chef steps that use the newly created variables
+		if result.Variables != nil && len(result.Variables) > 0 {
+			// Convert result variables to map[string]bool
+			updatedVarNames := make(map[string]bool)
+			for varName := range result.Variables {
+				updatedVarNames[varName] = true
+			}
+
+			// Update action previews for chef steps that use the newly created variables
+			if e.app != nil {
+				e.app.updateChefStepActionPreviews(gleipFlow, updatedVarNames)
+			}
+		}
 
 		// Emit the current results to the frontend
 		if e.eventEmitter != nil {
@@ -396,8 +417,8 @@ func (e *GleipFlowExecutor) executeScriptStep(step *ScriptStep, ctx *ExecutionCo
 	return result
 }
 
-// executeChefStep executes a chef step
-func (e *GleipFlowExecutor) executeChefStep(step *chef.ChefStep, ctx *ExecutionContext) ExecutionResult {
+// ExecuteChefStep executes a chef step
+func (e *GleipFlowExecutor) ExecuteChefStep(step *chef.ChefStep, ctx *ExecutionContext) ExecutionResult {
 	result := ExecutionResult{
 		StepID:   step.StepAttributes.ID,
 		StepName: step.StepAttributes.Name,

@@ -1,5 +1,12 @@
 2025.06.30
 ✨ What's New
+- Improved Chef-Steps' previews to react to changes in vars
+
+🐛 Bug Fixing
+- Chef step now always correctly shows the type of selected step
+
+2025.06.30
+✨ What's New
 - Intercept UI improvements
 
 🐛 Bug Fixing

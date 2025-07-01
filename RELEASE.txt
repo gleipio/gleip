@@ -1,3 +1,10 @@
+2025.07.01
+✨ What's New
+- Better UI for the Variables Step in GleipFlows
+
+🐛 Bug Fixing
+- URLs with no Host now show properly in History
+
 2025.06.30
 ✨ What's New
 - Improved Chef-Steps' previews to react to changes in vars
@@ -11,24 +18,3 @@
 
 🐛 Bug Fixing
 - Buttons correctly show clickable pointer
-
-2025.06.24
-✨ What's New
-- Suggested requests: GleipFlows will now present suggestions on which request to add next!
-
-2025.06.11-2
-🐛 Bug Fixing
--Firefox will no longer reach out to any unnecessary URLs
-
-2025.06.11-1
-🛡️ Security
-- We're now on Svelte 5, Vite 6, and TailwindCSS 4 ⏫
-- Upgraded all npm imports to non-vulnerable versions
-
-2025.06.11
-🐛 Bug Fixing
-- Telemetry now initializes properly
-
-2025.06.09
-✨ What's New
-- Steps can now be added contextually between other steps

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"Gleip/backend/chef"
 	"Gleip/backend/network"
 	"Gleip/backend/paths"
 	"encoding/gob"
@@ -13,6 +14,55 @@ import (
 	"github.com/google/uuid"
 	rt "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// init registers all types that need to be serialized with gob
+func init() {
+	// Register chef types that are embedded in other structures
+	gob.Register(&chef.ChefStep{})
+	gob.Register(&chef.ChefAction{})
+	gob.Register([]chef.ChefAction{})
+
+	// Register network types that might be used
+	gob.Register(&network.HTTPTransaction{})
+	gob.Register(&network.HTTPRequest{})
+	gob.Register(&network.HTTPResponse{})
+
+	// Register all gleipflow-related types
+	gob.Register(&GleipFlow{})
+	gob.Register([]*GleipFlow{})
+	gob.Register(&GleipFlowStep{})
+	gob.Register([]GleipFlowStep{})
+	gob.Register(&RequestStep{})
+	gob.Register(&ScriptStep{})
+	gob.Register(&ExecutionResult{})
+	gob.Register([]ExecutionResult{})
+	gob.Register(&VariableExtract{})
+	gob.Register([]VariableExtract{})
+	gob.Register(&FuzzSettings{})
+	gob.Register(&FuzzResult{})
+	gob.Register([]FuzzResult{})
+
+	// Register API collection types
+	gob.Register(&APICollection{})
+	gob.Register([]APICollection{})
+	gob.Register(&APIVariable{})
+	gob.Register([]APIVariable{})
+	gob.Register(&APIRequest{})
+	gob.Register([]APIRequest{})
+	gob.Register(&APIHeader{})
+	gob.Register([]APIHeader{})
+	gob.Register(&APIExample{})
+	gob.Register([]APIExample{})
+	gob.Register(&APIParameter{})
+	gob.Register([]APIParameter{})
+	gob.Register(&APISecurityScheme{})
+	gob.Register([]APISecurityScheme{})
+
+	// Register common map and slice types
+	gob.Register(map[string]interface{}{})
+	gob.Register(map[string]string{})
+	gob.Register([]string{})
+}
 
 // ProjectPersistence handles all project file operations
 type ProjectPersistence struct {

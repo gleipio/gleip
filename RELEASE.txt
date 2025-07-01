@@ -1,3 +1,7 @@
+2025.07.02
+🐛 Bug Fixing
+- Fixed a bug with loading a project with chefsteps
+
 2025.07.01
 ✨ What's New
 - Better UI for the Variables Step in GleipFlows

@@ -130,7 +130,7 @@ func (e *GleipFlowExecutor) ExecuteGleipFlow(gleipFlow *GleipFlow) ([]ExecutionR
 		}
 
 		// Update action previews for subsequent chef steps that use the newly created variables
-		if result.Variables != nil && len(result.Variables) > 0 {
+		if len(result.Variables) > 0 {
 			// Convert result variables to map[string]bool
 			updatedVarNames := make(map[string]bool)
 			for varName := range result.Variables {

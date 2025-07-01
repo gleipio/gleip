@@ -74,10 +74,18 @@ func (r *HTTPRequest) Method() string {
 }
 
 func (r *HTTPRequest) URL() string {
-	if r.TLS {
-		return "https://" + r.Host + strings.Split(r.Dump, " ")[1]
+	urlPart := strings.Split(r.Dump, " ")[1]
+
+	// If the URL part already contains a full URL (starts with http:// or https://), use it as-is
+	if strings.HasPrefix(urlPart, "http://") || strings.HasPrefix(urlPart, "https://") {
+		return urlPart
 	}
-	return "http://" + r.Host + strings.Split(r.Dump, " ")[1]
+
+	// Otherwise, construct the full URL from protocol + host + path
+	if r.TLS {
+		return "https://" + r.Host + urlPart
+	}
+	return "http://" + r.Host + urlPart
 }
 
 // HTTPResponse represents the response part of an HTTP transaction

@@ -711,12 +711,46 @@ func NewDefaultEventEmitter(app *App) TransactionEventEmitter {
 
 func (e *DefaultEventEmitter) EmitNewTransaction(transaction network.HTTPTransaction) {
 	if e.app != nil && e.app.ctx != nil {
+		// Add transaction to project's RequestHistory for persistence
+		e.app.projectMutex.Lock()
+		if e.app.currentProject != nil {
+			// Add new transaction to project history
+			if e.app.currentProject.RequestHistory == nil {
+				e.app.currentProject.RequestHistory = []*network.HTTPTransaction{}
+			}
+			transactionCopy := transaction // Make a copy
+			e.app.currentProject.RequestHistory = append(e.app.currentProject.RequestHistory, &transactionCopy)
+		}
+		e.app.projectMutex.Unlock()
+
+		// Request autosave since we added a new request to history
+		e.app.requestAutoSaveWithComponent("request_history")
+
+		// Emit the frontend event
 		runtime.EventsEmit(e.app.ctx, "new_transaction")
 	}
 }
 
 func (e *DefaultEventEmitter) EmitTransactionUpdate(transaction network.HTTPTransaction) {
 	if e.app != nil && e.app.ctx != nil {
+		// Update transaction in project's RequestHistory for persistence
+		e.app.projectMutex.Lock()
+		if e.app.currentProject != nil && e.app.currentProject.RequestHistory != nil {
+			// Find and update the corresponding transaction in project history
+			for i, tx := range e.app.currentProject.RequestHistory {
+				if tx != nil && tx.ID == transaction.ID {
+					transactionCopy := transaction // Make a copy
+					e.app.currentProject.RequestHistory[i] = &transactionCopy
+					break
+				}
+			}
+		}
+		e.app.projectMutex.Unlock()
+
+		// Request autosave since we updated a request in history
+		e.app.requestAutoSaveWithComponent("request_history")
+
+		// Emit the frontend event
 		runtime.EventsEmit(e.app.ctx, "new_transaction")
 	}
 }

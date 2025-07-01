@@ -205,7 +205,7 @@
     const variablesStep: GleipFlowStep = {
       stepType: 'variables',
       selected: true,
-      variablesStep: gleip.variables || []
+      variablesStep: gleip.variables || {}
     };
     
     // Return the variables step followed by the actual steps
@@ -418,6 +418,10 @@
         // Call the new backend method that updates variables and executes enabled chef steps
         // The step execution events will automatically trigger data reload to get updated action previews
         UpdateGleipFlowVariables(currentGleipFlow.id, updates.variables)
+          .then(() => {
+            // Reload the gleipFlows from backend to refresh UI with updated variables
+            loadGleipFlows();
+          })
           .catch((error: any) => {
             console.error('Failed to update variables:', error);
             showNotification(`Error updating variables: ${error.message || 'Unknown error'}`);

@@ -1290,10 +1290,8 @@ func (a *App) UpdateGleipFlowVariables(gleipFlowID string, variables map[string]
 		}
 	}
 
-	// Update the variables
-	if gleipFlow.Variables == nil {
-		gleipFlow.Variables = make(map[string]string)
-	}
+	// Completely replace the variables map to handle deletions properly
+	gleipFlow.Variables = make(map[string]string)
 	for varName, value := range variables {
 		gleipFlow.Variables[varName] = value
 	}

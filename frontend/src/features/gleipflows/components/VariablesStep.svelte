@@ -72,11 +72,17 @@
     <div class="flex flex-col space-y-2">
       <div class="text-sm font-medium text-gray-100">Variables</div>
       {#if Object.keys(variables).length > 0}
-        <div class="text-xs text-gray-50 overflow-hidden">
+        <div class="text-xs text-gray-50 mb-1">
           {Object.keys(variables).length} variable{Object.keys(variables).length !== 1 ? 's' : ''} defined
         </div>
-        <div class="text-xs text-gray-500 overflow-hidden font-mono">
-          {Object.entries(variables).map(([name, value]) => `${name}=${value}`).join(', ')}
+        <div class="flex flex-wrap gap-1 overflow-hidden">
+          {#each Object.entries(variables) as [name, value]}
+            <div class="bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] rounded px-2 py-1 text-xs max-w-full min-w-0">
+              <div class="break-all line-clamp-5" style="padding-left: .8rem; text-indent: -.8rem;">
+                <span class="text-blue-300 font-medium">{name}</span><span class="text-gray-400">=</span><span class="text-green-300">{value}</span>
+              </div>
+            </div>
+          {/each}
         </div>
       {:else}
         <div class="text-xs text-gray-500">No variables defined</div>

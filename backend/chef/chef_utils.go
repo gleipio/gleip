@@ -2,8 +2,16 @@ package chef
 
 import (
 	"Gleip/backend/gleipflow"
+	"crypto/md5"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"html"
+	"net/url"
+	"strconv"
+	"strings"
 )
 
 // ChefAction represents a single transformation action in a chef step
@@ -54,6 +62,40 @@ func executeAction(action ChefAction, input string) (string, error) {
 		return executeBase64Encode(input)
 	case "base64_decode":
 		return executeBase64Decode(input)
+	case "url_encode":
+		return executeURLEncode(input)
+	case "url_decode":
+		return executeURLDecode(input)
+	case "html_encode":
+		return executeHTMLEncode(input)
+	case "html_decode":
+		return executeHTMLDecode(input)
+	case "hex_encode":
+		return executeHexEncode(input)
+	case "hex_decode":
+		return executeHexDecode(input)
+	case "md5_hash":
+		return executeMD5Hash(input)
+	case "sha256_hash":
+		return executeSHA256Hash(input)
+	case "to_uppercase":
+		return executeToUppercase(input)
+	case "to_lowercase":
+		return executeToLowercase(input)
+	case "reverse_string":
+		return executeReverseString(input)
+	case "jwt_decode":
+		return executeJWTDecode(input)
+	case "json_escape":
+		return executeJSONEscape(input)
+	case "json_unescape":
+		return executeJSONUnescape(input)
+	case "unicode_escape":
+		return executeUnicodeEscape(input)
+	case "unicode_unescape":
+		return executeUnicodeUnescape(input)
+	case "trim_whitespace":
+		return executeTrimWhitespace(input)
 	default:
 		return "", fmt.Errorf("unknown action type: %s", action.ActionType)
 	}
@@ -72,6 +114,183 @@ func executeBase64Decode(input string) (string, error) {
 		return "", fmt.Errorf("invalid base64 input: %v", err)
 	}
 	return string(decoded), nil
+}
+
+// executeURLEncode URL encodes the input string
+func executeURLEncode(input string) (string, error) {
+	encoded := url.QueryEscape(input)
+	return encoded, nil
+}
+
+// executeURLDecode URL decodes the input string
+func executeURLDecode(input string) (string, error) {
+	decoded, err := url.QueryUnescape(input)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL encoding: %v", err)
+	}
+	return decoded, nil
+}
+
+// executeHTMLEncode HTML encodes the input string
+func executeHTMLEncode(input string) (string, error) {
+	encoded := html.EscapeString(input)
+	return encoded, nil
+}
+
+// executeHTMLDecode HTML decodes the input string
+func executeHTMLDecode(input string) (string, error) {
+	decoded := html.UnescapeString(input)
+	return decoded, nil
+}
+
+// executeHexEncode encodes the input string to hexadecimal
+func executeHexEncode(input string) (string, error) {
+	encoded := hex.EncodeToString([]byte(input))
+	return encoded, nil
+}
+
+// executeHexDecode decodes the input string from hexadecimal
+func executeHexDecode(input string) (string, error) {
+	decoded, err := hex.DecodeString(input)
+	if err != nil {
+		return "", fmt.Errorf("invalid hex input: %v", err)
+	}
+	return string(decoded), nil
+}
+
+// executeMD5Hash generates MD5 hash of the input string
+func executeMD5Hash(input string) (string, error) {
+	hasher := md5.New()
+	hasher.Write([]byte(input))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	return hash, nil
+}
+
+// executeSHA256Hash generates SHA256 hash of the input string
+func executeSHA256Hash(input string) (string, error) {
+	hasher := sha256.New()
+	hasher.Write([]byte(input))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	return hash, nil
+}
+
+// executeToUppercase converts the input string to uppercase
+func executeToUppercase(input string) (string, error) {
+	return strings.ToUpper(input), nil
+}
+
+// executeToLowercase converts the input string to lowercase
+func executeToLowercase(input string) (string, error) {
+	return strings.ToLower(input), nil
+}
+
+// executeReverseString reverses the input string
+func executeReverseString(input string) (string, error) {
+	runes := []rune(input)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes), nil
+}
+
+// executeJWTDecode decodes a JWT token (payload only, no signature verification)
+func executeJWTDecode(input string) (string, error) {
+	parts := strings.Split(input, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid JWT format: expected 3 parts separated by dots")
+	}
+
+	// Decode the payload (second part)
+	payload := parts[1]
+
+	// Add padding if necessary
+	if len(payload)%4 != 0 {
+		payload += strings.Repeat("=", 4-len(payload)%4)
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode JWT payload: %v", err)
+	}
+
+	// Pretty print JSON if possible
+	var jsonData interface{}
+	if err := json.Unmarshal(decoded, &jsonData); err == nil {
+		prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
+		if err == nil {
+			return string(prettyJSON), nil
+		}
+	}
+
+	return string(decoded), nil
+}
+
+// executeJSONEscape escapes a string for use in JSON
+func executeJSONEscape(input string) (string, error) {
+	escaped, err := json.Marshal(input)
+	if err != nil {
+		return "", fmt.Errorf("failed to JSON escape: %v", err)
+	}
+	// Remove the surrounding quotes that json.Marshal adds
+	result := string(escaped)
+	if len(result) >= 2 && result[0] == '"' && result[len(result)-1] == '"' {
+		result = result[1 : len(result)-1]
+	}
+	return result, nil
+}
+
+// executeJSONUnescape unescapes a JSON-escaped string
+func executeJSONUnescape(input string) (string, error) {
+	// Add quotes around the input for JSON unmarshaling
+	quotedInput := `"` + input + `"`
+
+	var result string
+	err := json.Unmarshal([]byte(quotedInput), &result)
+	if err != nil {
+		return "", fmt.Errorf("failed to JSON unescape: %v", err)
+	}
+	return result, nil
+}
+
+// executeUnicodeEscape escapes non-ASCII characters to Unicode escape sequences
+func executeUnicodeEscape(input string) (string, error) {
+	var result strings.Builder
+	for _, r := range input {
+		if r > 127 {
+			result.WriteString(fmt.Sprintf("\\u%04x", r))
+		} else {
+			result.WriteRune(r)
+		}
+	}
+	return result.String(), nil
+}
+
+// executeUnicodeUnescape unescapes Unicode escape sequences
+func executeUnicodeUnescape(input string) (string, error) {
+	var result strings.Builder
+	runes := []rune(input)
+
+	for i := 0; i < len(runes); i++ {
+		if i < len(runes)-5 && runes[i] == '\\' && runes[i+1] == 'u' {
+			// Try to parse the next 4 characters as hex
+			hexStr := string(runes[i+2 : i+6])
+			if codePoint, err := strconv.ParseInt(hexStr, 16, 32); err == nil {
+				result.WriteRune(rune(codePoint))
+				i += 5 // Skip the \uXXXX sequence
+			} else {
+				result.WriteRune(runes[i])
+			}
+		} else {
+			result.WriteRune(runes[i])
+		}
+	}
+
+	return result.String(), nil
+}
+
+// executeTrimWhitespace removes leading and trailing whitespace
+func executeTrimWhitespace(input string) (string, error) {
+	return strings.TrimSpace(input), nil
 }
 
 // GetPreview generates a preview of what the action would do to the input
@@ -101,6 +320,91 @@ func GetAvailableActions() []map[string]string {
 			"id":          "base64_decode",
 			"name":        "Base64 Decode",
 			"description": "Decode text from Base64",
+		},
+		{
+			"id":          "url_encode",
+			"name":        "URL Encode",
+			"description": "URL encode text (percent encoding)",
+		},
+		{
+			"id":          "url_decode",
+			"name":        "URL Decode",
+			"description": "URL decode text (percent decoding)",
+		},
+		{
+			"id":          "html_encode",
+			"name":        "HTML Encode",
+			"description": "HTML encode text (escape HTML entities)",
+		},
+		{
+			"id":          "html_decode",
+			"name":        "HTML Decode",
+			"description": "HTML decode text (unescape HTML entities)",
+		},
+		{
+			"id":          "hex_encode",
+			"name":        "Hex Encode",
+			"description": "Encode text to hexadecimal",
+		},
+		{
+			"id":          "hex_decode",
+			"name":        "Hex Decode",
+			"description": "Decode text from hexadecimal",
+		},
+		{
+			"id":          "md5_hash",
+			"name":        "MD5 Hash",
+			"description": "Generate MD5 hash of the input",
+		},
+		{
+			"id":          "sha256_hash",
+			"name":        "SHA256 Hash",
+			"description": "Generate SHA256 hash of the input",
+		},
+		{
+			"id":          "to_uppercase",
+			"name":        "To Uppercase",
+			"description": "Convert text to uppercase",
+		},
+		{
+			"id":          "to_lowercase",
+			"name":        "To Lowercase",
+			"description": "Convert text to lowercase",
+		},
+		{
+			"id":          "reverse_string",
+			"name":        "Reverse String",
+			"description": "Reverse the order of characters in the string",
+		},
+		{
+			"id":          "jwt_decode",
+			"name":        "JWT Decode",
+			"description": "Decode JWT token payload (no signature verification)",
+		},
+		{
+			"id":          "json_escape",
+			"name":        "JSON Escape",
+			"description": "Escape string for use in JSON",
+		},
+		{
+			"id":          "json_unescape",
+			"name":        "JSON Unescape",
+			"description": "Unescape JSON-escaped string",
+		},
+		{
+			"id":          "unicode_escape",
+			"name":        "Unicode Escape",
+			"description": "Escape non-ASCII characters to Unicode sequences",
+		},
+		{
+			"id":          "unicode_unescape",
+			"name":        "Unicode Unescape",
+			"description": "Unescape Unicode escape sequences",
+		},
+		{
+			"id":          "trim_whitespace",
+			"name":        "Trim Whitespace",
+			"description": "Remove leading and trailing whitespace",
 		},
 	}
 }

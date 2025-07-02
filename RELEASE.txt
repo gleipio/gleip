@@ -1,4 +1,7 @@
 2025.07.02
+✨ What's New
+- Added more basic chef actions!
+
 🐛 Bug Fixing
 - Fixed a bug with loading a project with chefsteps
 

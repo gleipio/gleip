@@ -323,6 +323,9 @@ func runCommand(command string) {
 	case "dev":
 		fmt.Println("Starting development server...")
 
+		// Set development mode environment variable
+		os.Setenv("GLEIP_DEV_MODE", "true")
+
 		// Dev command arguments
 		devArgs := []string{"dev", "-ldflags", ldflags}
 

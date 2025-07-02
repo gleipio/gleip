@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"os"
 
 	"Gleip/backend"
 	"Gleip/backend/network"
@@ -48,6 +49,12 @@ func main() {
 	// Initialize HTTP helper for frontend
 	httpHelper := network.NewHTTPHelper()
 
+	// Configure debug options - only enable in development mode
+	debugOptions := options.Debug{}
+	if os.Getenv("GLEIP_DEV_MODE") == "true" {
+		debugOptions.OpenInspectorOnStartup = true
+	}
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "Gleip",
@@ -80,12 +87,9 @@ func main() {
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 			DisableWindowIcon:    false,
-			WebviewUserDataPath:  "debug_webview",
 		},
 		Linux: &linux.Options{},
-		Debug: options.Debug{
-			OpenInspectorOnStartup: true,
-		},
+		Debug: debugOptions,
 	})
 
 	if err != nil {

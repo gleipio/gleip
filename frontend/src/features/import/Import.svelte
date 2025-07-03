@@ -986,40 +986,36 @@ ${request.body || ''}`;
 </script>
 
 <div class="w-full h-full flex flex-col bg-[var(--color-midnight)] text-white">
-    <div class="flex items-center justify-between p-4 border-b border-[var(--color-midnight-darker)]">
-        <div class="flex items-center">
-            <h1 class="text-xl font-semibold">API Collections</h1>
+    <!-- Tab bar with Import button -->
+    <div class="flex bg-[var(--color-midnight-light)] px-2 border-b border-[var(--color-midnight-darker)]">
+        <div class="flex overflow-x-auto flex-1 max-w-[calc(100%-180px)]">
+            {#each tabs as tab}
+                <button
+                    class="px-3 py-2 flex items-center gap-2 cursor-pointer transition-colors border-b-2 min-w-[120px] max-w-[250px] {activeTabId === tab.id ? 'border-blue-500 bg-[var(--color-midnight-light)]/80' : 'border-transparent'}"
+                    on:click={() => setActiveTab(tab.id)}
+                    title={tab.name}
+                >
+                    <span class="truncate text-sm flex-1">{tab.name}</span>
+                    {#if tabs.length > 1}
+                        <div
+                            class="text-gray-50 hover:text-white flex-shrink-0 ml-1 cursor-pointer"
+                            role="button"
+                            tabindex="0"
+                            on:click={(e) => { e.stopPropagation(); closeTab(tab.id); }}
+                            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); closeTab(tab.id); } }}
+                        >
+                            <X size={12} />
+                        </div>
+                    {/if}
+                </button>
+            {/each}
         </div>
-        <div class="flex items-center gap-2">
-            <button class="px-4 py-2 bg-[var(--color-midnight-accent)] hover:bg-[var(--color-midnight-accent)]/80 text-[var(--color-button-text)] rounded-md flex items-center" on:click={importCollection}>
+        <div class="flex items-center ml-auto px-2">
+            <button class="px-4 py-0 bg-[var(--color-midnight-accent)] hover:bg-[var(--color-midnight-accent)]/80 text-[var(--color-button-text)] rounded-md flex items-center" on:click={importCollection}>
                 <FolderOpen size={16} class="mr-2" />
-                Import Collection
-            </button>
-            <button class="px-2 py-2 bg-[var(--color-midnight-light)] hover:bg-[var(--color-midnight-light)]/80 rounded-md" on:click={addTab}>
-                <Plus size={16} />
+                Import New Collection
             </button>
         </div>
-    </div>
-    
-    <!-- Tab bar -->
-    <div class="flex bg-[var(--color-midnight-light)] px-2 overflow-x-auto">
-        {#each tabs as tab}
-            <button
-                class="px-3 py-2 flex items-center gap-2 cursor-pointer transition-colors border-b-2 flex-1 min-w-24 {activeTabId === tab.id ? 'border-blue-500 bg-[var(--color-midnight-light)]/80' : 'border-transparent'}"
-                on:click={() => setActiveTab(tab.id)}
-                title={tab.name}
-            >
-                <span class="truncate text-sm flex-1">{tab.name}</span>
-                {#if tabs.length > 1}
-                    <button
-                        class="text-gray-50 hover:text-white flex-shrink-0 ml-1"
-                        on:click={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                    >
-                        <X size={12} />
-                    </button>
-                {/if}
-            </button>
-        {/each}
     </div>
     
     <!-- Main content area with sidebar and content -->

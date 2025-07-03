@@ -1,8 +1,10 @@
 # Gleip
 
-Gleip is an advanced intercepting proxy designed for ethical hackers, security researchers, and bug bounty hunters. It helps you analyze, manipulate, and automate HTTP traffic in order to discover and exploit vulnerabilities in web applications, especially those that depend on complex user flows.
+Gleip is your web security companion, crafted for ethical hackers, security researchers, and bug bounty hunters who want to go beyond basic intercepting proxies. Gleip empowers you to analyze, manipulate, and automate HTTP requests with precision, revealing vulnerabilities that hide within real-world, multi-step user flows.
 
-Whether you're testing login sequences, chained API calls, or multi-step transactions, Gleip gives you the tools to craft, replay, and mutate requests with precision.
+Whether you’re testing complex login sequences, chained API calls, or intricate e-commerce transactions, Gleip helps you capture, replay, and mutate requests as cohesive flows, not isolated calls. Extract variables, insert custom logic, and experiment with fuzzing to build powerful, repeatable Proofs of Concept.
+
+Built with modern offensive workflows in mind, Gleip transforms tedious manual testing into streamlined processes that mirror how users — and attackers — actually navigate applications. It’s designed to help you move fast, dig deeper, and understand your targets end-to-end.
 
 ## Quick Start
 
@@ -21,17 +23,6 @@ make dev
 make help
 ```
 
-### Available Make Targets
-
-- **build** - Build for current platform (default)
-- **certs** - Generate certificate files
-- **save-certs** - Generate and save certificate databases for CI
-- **deps** - Install platform dependencies
-- **clean** - Remove build artifacts
-- **publish** - Download CI artifacts, sign DMGs, and publish release
-- **sign-dmg** - Sign a CI-built DMG (requires DMG_PATH=path/to/file.dmg)
-- **help** - Show help message
-
 ### Supported Platforms
 
 - `windows/amd64`
@@ -39,11 +30,3 @@ make help
 - `darwin/arm64`
 - `linux/amd64`
 - `linux/arm64`
-
-### Advanced Usage
-
-For more advanced build options, you can call the build tool directly:
-
-```bash
-go run cmd/build-tool/main.go [command] [args...]
-```

@@ -77,9 +77,15 @@ export function initializeMonaco() {
             [/^([^:]+)(:)/, ['type', 'delimiter']],
             
             // Body (simplified)
-            [/"[^"]*"/, 'string'],
+            [/"/, 'string', '@string'],
             [/\b\d+\b/, 'number'],
             [/[{}[\],:]/, 'delimiter'],
+          ],
+          
+          string: [
+            [/\{\{([^}]*)\}\}/, 'variable'],
+            [/[^"{{]+/, 'string'],
+            [/"/, 'string', '@pop'],
           ]
         }
       });
@@ -103,9 +109,16 @@ export function initializeMonaco() {
             [/^([^:]+)(:)/, ['type', 'delimiter']],
             
             // Body (simplified)
-            [/"[^"]*"/, 'string'],
+            [/"/, 'string', '@string'],
             [/\b\d+\b/, 'number'],
             [/[{}[\],:]/, 'delimiter'],
+          ],
+          
+          string: [
+            [/\{\{(fuzz)\}\}/, 'fuzz'],
+            [/\{\{([^}]*)\}\}/, 'variable'],
+            [/[^"{{]+/, 'string'],
+            [/"/, 'string', '@pop'],
           ]
         }
       });

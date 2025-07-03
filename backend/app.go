@@ -391,7 +391,8 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 		// DIRECTLY update the cached GleipFlow with execution results AND updated steps (action previews)
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
-			cachedFlow.ExecutionResults = results
+			// Merge new results with existing results (preserve results for non-executed steps)
+			cachedFlow.ExecutionResults = a.mergeExecutionResults(cachedFlow.ExecutionResults, results)
 			cachedFlow.Steps = gleipFlow.Steps // Update steps array (contains updated action previews)
 			// Merge execution result variables into flow variables
 			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
@@ -405,7 +406,8 @@ func (a *App) ExecuteGleipFlow(gleipFlowID string) ([]ExecutionResult, error) {
 		if a.currentProject != nil {
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
-					projectFlow.ExecutionResults = results
+					// Merge new results with existing results (preserve results for non-executed steps)
+					projectFlow.ExecutionResults = a.mergeExecutionResults(projectFlow.ExecutionResults, results)
 					projectFlow.Steps = gleipFlow.Steps // Update steps array (contains updated action previews)
 					// Merge execution result variables into flow variables
 					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
@@ -461,27 +463,48 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 	// Execute with the modified selections
 	results, err := a.gleipFlowExecutor.ExecuteGleipFlow(&flowCopy)
 	if err == nil {
-		// Update execution results and steps (action previews) in the original flow (not the copy)
+		// DIRECTLY update the cached GleipFlow with execution results AND updated steps (action previews)
+		// but preserve the original Selected properties
 		a.gleipFlowsMutex.Lock()
 		if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
-			cachedFlow.ExecutionResults = results
-			cachedFlow.Steps = flowCopy.Steps // Update steps array from the executed copy (contains updated action previews)
+			// Merge new results with existing results (preserve results for non-executed steps)
+			cachedFlow.ExecutionResults = a.mergeExecutionResults(cachedFlow.ExecutionResults, results)
+			// Update steps array but preserve original Selected properties
+			for i := range cachedFlow.Steps {
+				if i < len(flowCopy.Steps) {
+					// Preserve original Selected property
+					originalSelected := cachedFlow.Steps[i].Selected
+					cachedFlow.Steps[i] = flowCopy.Steps[i]
+					cachedFlow.Steps[i].Selected = originalSelected
+				}
+			}
 			// Merge execution result variables into flow variables
 			if cachedFlow.MergeExecutionResultsIntoFlowVariables() {
-				fmt.Printf("Merged execution result variables into cached flow %s (single step)\n", gleipFlowID)
+				fmt.Printf("Merged execution result variables into cached flow %s\n", gleipFlowID)
 			}
 		}
 		a.gleipFlowsMutex.Unlock()
 
+		// DIRECTLY update the project GleipFlow with execution results AND updated steps (action previews)
+		// but preserve the original Selected properties
 		a.projectMutex.Lock()
 		if a.currentProject != nil {
 			for _, projectFlow := range a.currentProject.GleipFlows {
 				if projectFlow.ID == gleipFlowID {
-					projectFlow.ExecutionResults = results
-					projectFlow.Steps = flowCopy.Steps // Update steps array from the executed copy (contains updated action previews)
+					// Merge new results with existing results (preserve results for non-executed steps)
+					projectFlow.ExecutionResults = a.mergeExecutionResults(projectFlow.ExecutionResults, results)
+					// Update steps array but preserve original Selected properties
+					for i := range projectFlow.Steps {
+						if i < len(flowCopy.Steps) {
+							// Preserve original Selected property
+							originalSelected := projectFlow.Steps[i].Selected
+							projectFlow.Steps[i] = flowCopy.Steps[i]
+							projectFlow.Steps[i].Selected = originalSelected
+						}
+					}
 					// Merge execution result variables into flow variables
 					if projectFlow.MergeExecutionResultsIntoFlowVariables() {
-						fmt.Printf("Merged execution result variables into project flow %s (single step)\n", gleipFlowID)
+						fmt.Printf("Merged execution result variables into project flow %s\n", gleipFlowID)
 					}
 					break
 				}
@@ -489,6 +512,7 @@ func (a *App) ExecuteSingleStep(gleipFlowID string, stepIndex int) ([]ExecutionR
 		}
 		a.projectMutex.Unlock()
 
+		// Request auto-save since we've modified gleipFlow data (including execution results and action previews)
 		a.requestAutoSaveWithComponent("gleip_flows")
 	}
 
@@ -1281,18 +1305,28 @@ func (a *App) UpdateGleipFlowVariables(gleipFlowID string, variables map[string]
 		return fmt.Errorf("failed to get gleipFlow: %v", err)
 	}
 
-	// Track what variables changed
+	// Filter out empty variable names and track what variables changed
+	filteredVariables := make(map[string]string)
 	changedVars := make(map[string]string)
+
 	for varName, newValue := range variables {
-		oldValue, exists := gleipFlow.Variables[varName]
+		// Skip empty variable names
+		trimmedName := strings.TrimSpace(varName)
+		if trimmedName == "" {
+			continue
+		}
+
+		filteredVariables[trimmedName] = newValue
+
+		oldValue, exists := gleipFlow.Variables[trimmedName]
 		if !exists || oldValue != newValue {
-			changedVars[varName] = newValue
+			changedVars[trimmedName] = newValue
 		}
 	}
 
 	// Completely replace the variables map to handle deletions properly
 	gleipFlow.Variables = make(map[string]string)
-	for varName, value := range variables {
+	for varName, value := range filteredVariables {
 		gleipFlow.Variables[varName] = value
 	}
 
@@ -1439,4 +1473,32 @@ func (a *App) executeEnabledChefSteps(gleipFlow *GleipFlow, initiallyChangedVars
 	}
 
 	return nil
+}
+
+// mergeExecutionResults merges new execution results with existing ones
+// Only updates results for steps that were actually executed (have new results)
+// Preserves existing results for steps that weren't executed
+func (a *App) mergeExecutionResults(existingResults []ExecutionResult, newResults []ExecutionResult) []ExecutionResult {
+	if len(newResults) == 0 {
+		return existingResults
+	}
+
+	// Create a map of existing results by step ID for fast lookup
+	existingByStepID := make(map[string]ExecutionResult)
+	for _, result := range existingResults {
+		existingByStepID[result.StepID] = result
+	}
+
+	// Update with new results (overwrite existing or add new)
+	for _, newResult := range newResults {
+		existingByStepID[newResult.StepID] = newResult
+	}
+
+	// Convert back to slice
+	mergedResults := make([]ExecutionResult, 0, len(existingByStepID))
+	for _, result := range existingByStepID {
+		mergedResults = append(mergedResults, result)
+	}
+
+	return mergedResults
 }

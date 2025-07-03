@@ -209,9 +209,9 @@
             {#if step.requestStep.isFuzzMode}
               <span class="ml-2 px-2 py-0.5 bg-[var(--color-secondary-accent)] text-black text-xs rounded">
                 Fuzz
-                {#if step.requestStep.fuzzSettings?.fuzzResults && step.requestStep.fuzzSettings.fuzzResults.length > 0}
+                <!-- {#if step.requestStep.fuzzSettings?.fuzzResults && step.requestStep.fuzzSettings.fuzzResults.length > 0}
                   ({step.requestStep.fuzzSettings.fuzzResults.length})
-                {/if}
+                {/if} -->
               </span>
             {/if}
           {/if}

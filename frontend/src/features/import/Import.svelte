@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { File, FolderOpen, Plus, X, ChevronDown, ChevronRight, ShieldCheck, ShieldOff, ChevronUp } from 'lucide-svelte';
-    import { ImportAPICollection, ImportAPICollectionAsync, GetAPICollections, BrowseForAPICollectionFile, SetAPICollectionSecurity, GetRequestWithSecurity, GetRequestExamplesWithSecurity, SetSelectedAPICollection, GetSelectedAPICollection, CopyRequestToClipboard, CopyAPIRequestToClipboard, CopyAPIRequestToCurrentFlow } from '../../../wailsjs/go/backend/App';
+    import { ImportAPICollection, ImportAPICollectionAsync, GetAPICollections, BrowseForAPICollectionFile, SetAPICollectionSecurity, GetRequestWithSecurity, GetRequestExamplesWithSecurity, SetSelectedAPICollection, GetSelectedAPICollection, CopyRequestToClipboard, CopyAPIRequestToClipboard, CopyAPIRequestToCurrentFlow, DeleteAPICollection } from '../../../wailsjs/go/backend/App';
     import MonacoEditor from '../../components/monaco/MonacoEditor.svelte';
     import * as wailsRuntime from '../../../wailsjs/runtime/runtime';
     import ContextMenu from '../../shared/components/ContextMenu.svelte';
@@ -162,76 +162,72 @@
             
             // No longer needed - using selected flow directly
             
-            // If collections exist, load the first one in the first tab
+            // If collections exist, create tabs for ALL collections
             if (collections.length > 0) {
-                // If there's a selected collection from a saved project, use that
+                console.log(`Loading ${collections.length} collections on mount`);
+                
+                // Get the selected collection ID
                 const selectedCollectionID = await GetSelectedAPICollection();
-                let selectedCollection = null;
                 
-                if (selectedCollectionID) {
-                    // Find the previously selected collection
-                    selectedCollection = collections.find(c => c.id === selectedCollectionID);
-                }
+                // Create tabs for all collections
+                const newTabs: CollectionTab[] = [];
+                let activeTabIndex = 0;
                 
-                // If we found a selected collection, use it; otherwise use the first one
-                if (selectedCollection) {
-                    tabs[0].collection = selectedCollection;
-                    tabs[0].name = selectedCollection.name || 'Collection 1';
-                    tabs[0].id = selectedCollection.id;
-                    activeTabId = selectedCollection.id;
-                } else {
-                    tabs[0].collection = collections[0];
-                    tabs[0].name = collections[0].name || 'Collection 1';
-                }
-                
-                // Auto-select the first security scheme if one isn't already selected
-                if (tabs[0].collection && tabs[0].collection.securitySchemes && tabs[0].collection.securitySchemes.length > 0) {
-                    const activeCollection = tabs[0].collection;
+                for (let i = 0; i < collections.length; i++) {
+                    const collection = collections[i];
+                    const tab: CollectionTab = {
+                        id: collection.id,
+                        name: collection.name || `Collection ${i + 1}`,
+                        collection: collection
+                    };
                     
-                    // If no active security is set, set the first one
-                    if (!activeCollection.activeSecurity) {
-                        const firstScheme = activeCollection.securitySchemes[0];
-                        console.log('Auto-selecting first security scheme:', firstScheme.name);
-                        
-                        // Update local state
-                        activeCollection.activeSecurity = firstScheme.id;
-                        activeSecurityScheme = firstScheme;
-                        securityValue = firstScheme.value || '';
-                        
-                        // Save to backend
-                        try {
-                            await SetAPICollectionSecurity(activeCollection.id, firstScheme.id, securityValue);
-                            console.log('Successfully set initial security scheme');
-                        } catch (error) {
-                            console.error('Failed to set initial security scheme:', error);
-                        }
-                    } else {
-                        // Find the active security scheme
-                        const scheme = activeCollection.securitySchemes.find(s => s.id === activeCollection.activeSecurity);
-                        if (scheme) {
-                            console.log('Using existing security scheme:', scheme.name);
-                            activeSecurityScheme = scheme;
-                            securityValue = scheme.value || '';
-                        } else if (activeCollection.securitySchemes.length > 0) {
-                            // Fallback to first scheme if active ID doesn't match any scheme
-                            const firstScheme = activeCollection.securitySchemes[0];
-                            console.log('Falling back to first security scheme:', firstScheme.name);
+                    // If this is the selected collection, remember its index
+                    if (selectedCollectionID && collection.id === selectedCollectionID) {
+                        activeTabIndex = i;
+                    }
+                    
+                    newTabs.push(tab);
+                    
+                    // Set up security for each collection
+                    if (collection.securitySchemes && collection.securitySchemes.length > 0) {
+                        // If no active security is set, set the first one
+                        if (!collection.activeSecurity) {
+                            const firstScheme = collection.securitySchemes[0];
+                            console.log(`Auto-selecting first security scheme for ${collection.name}:`, firstScheme.name);
                             
                             // Update local state
-                            activeCollection.activeSecurity = firstScheme.id;
-                            activeSecurityScheme = firstScheme;
-                            securityValue = firstScheme.value || '';
+                            collection.activeSecurity = firstScheme.id;
                             
                             // Save to backend
                             try {
-                                await SetAPICollectionSecurity(activeCollection.id, firstScheme.id, firstScheme.value || '');
-                                console.log('Successfully set fallback security scheme');
+                                await SetAPICollectionSecurity(collection.id, firstScheme.id, firstScheme.value || '');
+                                console.log('Successfully set initial security scheme');
                             } catch (error) {
-                                console.error('Failed to set fallback security scheme:', error);
+                                console.error('Failed to set initial security scheme:', error);
                             }
                         }
                     }
                 }
+                
+                // Replace the default tab with all collection tabs
+                tabs = newTabs;
+                
+                // Set the active tab (either selected collection or first one)
+                if (tabs.length > activeTabIndex) {
+                    activeTabId = tabs[activeTabIndex].id;
+                    
+                    // Set up security state for the active collection
+                    const activeCollection = tabs[activeTabIndex].collection;
+                    if (activeCollection && activeCollection.securitySchemes && activeCollection.securitySchemes.length > 0) {
+                        const scheme = activeCollection.securitySchemes.find(s => s.id === activeCollection.activeSecurity);
+                        if (scheme) {
+                            activeSecurityScheme = scheme;
+                            securityValue = scheme.value || '';
+                        }
+                    }
+                }
+                
+                console.log(`Created ${tabs.length} tabs, active tab: ${activeTabId}`);
             }
             
             // Set up event listeners for import success/error
@@ -244,6 +240,8 @@
                 if (!tabs[0].collection) {
                     tabs[0].collection = collection;
                     tabs[0].name = collection.name || 'Collection 1';
+                    tabs[0].id = collection.id; // Fix: Update tab ID to match collection ID
+                    activeTabId = collection.id; // Fix: Update active tab ID too
                     
                     // Auto-select the first security scheme if available
                     if (collection.securitySchemes && collection.securitySchemes.length > 0) {
@@ -382,75 +380,6 @@
                 console.log('Real-time security change applied to frontend with preview update');
             });
             
-            // Set up event listener for security changes
-            wailsRuntime.EventsOn("api-collection:security-changed", (data) => {
-                console.log('Security changed event received:', data);
-                const { collectionID, collection: updatedCollection } = data;
-                
-                // Update the collection in tabs
-                for (let i = 0; i < tabs.length; i++) {
-                    const currentTab = tabs[i];
-                    if (currentTab.collection && currentTab.collection.id === collectionID) {
-                        tabs[i].collection = updatedCollection;
-                        
-                        // If this is the active tab, update the reactive state
-                        if (currentTab.id === activeTabId) {
-                            // Find the active security scheme
-                            if (updatedCollection && updatedCollection.securitySchemes && updatedCollection.securitySchemes.length > 0) {
-                                const scheme = updatedCollection.securitySchemes.find((s: APISecurityScheme) => s.id === updatedCollection.activeSecurity);
-                                if (scheme) {
-                                    activeSecurityScheme = scheme;
-                                    securityValue = scheme.value || '';
-                                } else {
-                                    activeSecurityScheme = null;
-                                    securityValue = '';
-                                }
-                            } else {
-                                activeSecurityScheme = null;
-                                securityValue = '';
-                            }
-                            
-                            // REAL-TIME PREVIEW UPDATE: Refresh the currently selected request
-                            if (selectedRequestId) {
-                                console.log('Updating selected request preview in real-time');
-                                updateSelectedRequest();
-                            }
-                            
-                            // Refresh all expanded request examples
-                            for (const expandedId of expandedRequests) {
-                                // Find the request and refresh its examples
-                                for (const folderName of folderNames) {
-                                    const requests = groupedRequests[folderName] || [];
-                                    for (const request of requests) {
-                                        if (request.id === expandedId) {
-                                            GetRequestExamplesWithSecurity(updatedCollection.id, expandedId)
-                                                .then(examples => {
-                                                    if (examples && examples.length > 0) {
-                                                        request.examples = examples;
-                                                        console.log(`Refreshed examples for request ${expandedId}`);
-                                                    }
-                                                })
-                                                .catch(error => {
-                                                    console.error('Failed to refresh examples with security:', error);
-                                                });
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-                
-                // Update collections array
-                collections = collections.map((c: APICollection) => 
-                    c.id === collectionID ? updatedCollection : c
-                );
-                
-                console.log('Security change applied to frontend with real-time preview update');
-            });
-            
         } catch (error) {
             console.error('Failed to load collections:', error);
         }
@@ -543,9 +472,25 @@
     }
     
     // Close tab
-    function closeTab(id: string) {
+    async function closeTab(id: string) {
         // Don't close if it's the only tab
         if (tabs.length <= 1) return;
+        
+        // Find the tab to get the collection
+        const tab = tabs.find(tab => tab.id === id);
+        if (tab && tab.collection) {
+            try {
+                // Delete the collection from the backend
+                await DeleteAPICollection(tab.collection.id);
+                console.log(`Deleted collection: ${tab.collection.name}`);
+                
+                // Update the collections array
+                collections = collections.filter(c => c.id !== tab.collection!.id);
+            } catch (error) {
+                console.error('Failed to delete collection:', error);
+                // Still remove the tab from UI even if backend deletion failed
+            }
+        }
         
         // Remove the tab
         tabs = tabs.filter(tab => tab.id !== id);
@@ -1060,16 +1005,17 @@ ${request.body || ''}`;
     <div class="flex bg-[var(--color-midnight-light)] px-2 overflow-x-auto">
         {#each tabs as tab}
             <button
-                class="px-4 py-2 flex items-center gap-2 cursor-pointer transition-colors border-b-2 {activeTabId === tab.id ? 'border-blue-500 bg-[var(--color-midnight-light)]/80' : 'border-transparent'}"
+                class="px-3 py-2 flex items-center gap-2 cursor-pointer transition-colors border-b-2 flex-1 min-w-24 {activeTabId === tab.id ? 'border-blue-500 bg-[var(--color-midnight-light)]/80' : 'border-transparent'}"
                 on:click={() => setActiveTab(tab.id)}
+                title={tab.name}
             >
-                <span>{tab.name}</span>
+                <span class="truncate text-sm flex-1">{tab.name}</span>
                 {#if tabs.length > 1}
                     <button
-                        class="text-gray-50 hover:text-white"
+                        class="text-gray-50 hover:text-white flex-shrink-0 ml-1"
                         on:click={(e) => { e.stopPropagation(); closeTab(tab.id); }}
                     >
-                        <X size={14} />
+                        <X size={12} />
                     </button>
                 {/if}
             </button>

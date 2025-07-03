@@ -1,18 +1,31 @@
 import { writable, derived, get } from 'svelte/store';
 import { SaveGleipFlow, GetGleipFlows, DeleteGleipFlow, CreateGleipFlow, AddStepToGleipFlow, SetSelectedGleipFlowID, UpdateGleipFlow, AddChefAction, RemoveChefAction, UpdateChefAction, UpdateChefStep, PasteRequestToGleipFlowAtPosition, UpdateStepExpansion } from '../../../../wailsjs/go/backend/App';
 import { backend } from '../../../../wailsjs/go/models';
-import type { GleipFlow, ExecutionResult, GleipFlowStep } from '../types';
+import type { GleipFlow, ExecutionResult, GleipFlowStep, FuzzResult } from '../types';
 import { generateRawHttpRequest } from '../utils/httpUtils';
 
-// Store state
+// Core stores
 export const gleipFlows = writable<GleipFlow[]>([]);
 export const activeGleipFlowIndex = writable<number | null>(null);
 export const activeStepIndex = writable<number | null>(null);
 export const isExecuting = writable<boolean>(false);
 export const isCreatingGleipFlow = writable<boolean>(false);
+
+// Separate store for fuzz results to avoid triggering full gleip flow re-renders
+export const fuzzResults = writable<{ [stepId: string]: FuzzResult[] }>({});
+
+// Store state
 export const newGleipFlowName = writable<string>('');
 
 export const updatedRequestIds = writable<Set<string>>(new Set());
+
+// Function to update fuzz results without triggering full gleip flow re-render
+export const updateFuzzResults = (stepId: string, results: FuzzResult[]) => {
+  fuzzResults.update(current => ({
+    ...current,
+    [stepId]: results
+  }));
+};
 
 // Derived stores
 export const activeGleipFlow = derived(

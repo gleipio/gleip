@@ -314,13 +314,13 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 		}
 
 		// Execute single fuzz request
-		fuzzResult := e.executeSingleFuzzRequest(step, ctx)
+		fuzzResult := e.executeSingleFuzzRequest(step, ctx, word)
 		step.FuzzSettings.FuzzResults = append(step.FuzzSettings.FuzzResults, fuzzResult)
 
 		fmt.Printf("Fuzz result for '%s': status=%d, size=%d, time=%dms\n",
 			word, fuzzResult.StatusCode, fuzzResult.Size, fuzzResult.Time)
 
-		// Emit update
+		// Emit real-time update (but with isFuzzing flag so frontend can handle appropriately)
 		if e.eventEmitter != nil {
 			e.eventEmitter.EmitFuzzUpdate(step.StepAttributes.ID, step.FuzzSettings.FuzzResults)
 		}
@@ -346,9 +346,8 @@ func (e *GleipFlowExecutor) executeFuzzStep(step *RequestStep, ctx *ExecutionCon
 }
 
 // executeSingleFuzzRequest executes a single fuzz request
-func (e *GleipFlowExecutor) executeSingleFuzzRequest(step *RequestStep, ctx *ExecutionContext) FuzzResult {
+func (e *GleipFlowExecutor) executeSingleFuzzRequest(step *RequestStep, ctx *ExecutionContext, fuzzWord string) FuzzResult {
 	timeout := 10 * time.Second
-	fuzzWord := step.FuzzSettings.CurrentWordlist[0]
 
 	options := RequestExecutionOptions{
 		VariableProcessor: func(rawRequest string) string {
@@ -369,7 +368,7 @@ func (e *GleipFlowExecutor) executeSingleFuzzRequest(step *RequestStep, ctx *Exe
 
 	var fuzzResult FuzzResult
 	fuzzResult.Word = fuzzWord
-	fuzzResult.Request = result.ActualRawRequest
+	fuzzResult.Request = result.ProcessedRawRequest // Use processed request to show actual fuzzed content
 	fuzzResult.Time = result.ExecutionTime.Milliseconds()
 
 	if result.Error != nil {
@@ -424,6 +423,12 @@ func (e *GleipFlowExecutor) ExecuteChefStep(step *chef.ChefStep, ctx *ExecutionC
 		StepName: step.StepAttributes.Name,
 		StepType: "chef",
 		Success:  true,
+	}
+
+	// Skip execution if no input variable is specified
+	if step.InputVariable == "" {
+		// No input variable specified - skip execution entirely
+		return result
 	}
 
 	// Get the input value from variables
@@ -612,6 +617,12 @@ func (e *DefaultScriptExecutor) setupHelperFunctions(vm *goja.Runtime, context *
 
 		name := call.Arguments[0].String()
 		value := call.Arguments[1].String()
+
+		// Prevent empty variable names
+		if strings.TrimSpace(name) == "" {
+			return vm.ToValue(fmt.Errorf("variable name cannot be empty"))
+		}
+
 		context.SetVariable(name, value, "script execution")
 		return goja.Undefined()
 	})
@@ -776,6 +787,7 @@ func (e *DefaultEventEmitter) EmitFuzzUpdate(stepId string, fuzzResults []FuzzRe
 		eventData := map[string]interface{}{
 			"stepId":      stepId,
 			"fuzzResults": fuzzResults,
+			"isFuzzing":   true, // Flag to help frontend avoid unnecessary refreshes
 		}
 		runtime.EventsEmit(e.app.ctx, "gleipFlow:fuzzUpdate", eventData)
 		fmt.Printf("Emitted gleipFlow:fuzzUpdate event with %d results\n", len(fuzzResults))
@@ -793,11 +805,12 @@ type RequestExecutionOptions struct {
 
 // RequestExecutionResult contains the result of request execution
 type RequestExecutionResult struct {
-	ActualRawRequest string
-	Transaction      *network.HTTPTransaction
-	Error            error
-	ExecutionTime    time.Duration
-	Metadata         map[string]interface{}
+	ActualRawRequest    string // Request with variables preserved (for UI display)
+	ProcessedRawRequest string // Request with variables substituted (for fuzzing display)
+	Transaction         *network.HTTPTransaction
+	Error               error
+	ExecutionTime       time.Duration
+	Metadata            map[string]interface{}
 }
 
 // executeRequestWithOptions is a generalized request execution function
@@ -818,7 +831,9 @@ func (e *GleipFlowExecutor) executeRequestWithOptions(step *RequestStep, options
 	if options.RecalculateLength {
 		_, bodyOfProcessedRequest := http_utils.SplitRawRequest(processedRawRequest)
 		newContentLength := len(bodyOfProcessedRequest)
+		// Update Content-Length in the original request (preserving variable placeholders) for UI display
 		actualRawRequest = http_utils.UpdateContentLengthInRawRequest(actualRawRequest, newContentLength)
+		// Update Content-Length in the processed request for sending
 		processedRawRequest = http_utils.UpdateContentLengthInRawRequest(processedRawRequest, newContentLength)
 	}
 
@@ -842,11 +857,12 @@ func (e *GleipFlowExecutor) executeRequestWithOptions(step *RequestStep, options
 	executionTime := time.Since(startTime)
 
 	return RequestExecutionResult{
-		ActualRawRequest: actualRawRequest,
-		Transaction:      transaction,
-		Error:            err,
-		ExecutionTime:    executionTime,
-		Metadata:         options.AdditionalMetadata,
+		ActualRawRequest:    actualRawRequest,
+		ProcessedRawRequest: processedRawRequest,
+		Transaction:         transaction,
+		Error:               err,
+		ExecutionTime:       executionTime,
+		Metadata:            options.AdditionalMetadata,
 	}
 }
 

@@ -1,16 +1,23 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { GetPhantomRequests } from '../../../../wailsjs/go/backend/App';
+  import { GetPhantomRequests, GetPhantomRequestsForced } from '../../../../wailsjs/go/backend/App';
   import PhantomRequestCard from './PhantomRequestCard.svelte';
   
   export let gleipFlowId: string;
   export let lastRequestInFlow: any = null;
+  export let cachedPhantomRequests: any[] = [];
   
   const dispatch = createEventDispatcher();
   
   let phantomRequests: any[] = [];
   let isLoading = false;
   let error = '';
+  
+  // Initialize with cached phantom requests when available
+  $: if (cachedPhantomRequests && cachedPhantomRequests.length > 0 && phantomRequests.length === 0) {
+    phantomRequests = [...cachedPhantomRequests];
+    console.log(`Loaded ${cachedPhantomRequests.length} cached phantom requests`);
+  }
   
   // Load phantom requests when component mounts or when lastRequestInFlow changes
   $: if (gleipFlowId && lastRequestInFlow) {
@@ -28,10 +35,37 @@
     
     try {
       const result = await GetPhantomRequests(gleipFlowId, lastRequestInFlow);
-      phantomRequests = result || [];
+      
+      // Backend returns empty array when rate limited or no changes
+      // Only update if we got actual suggestions
+      if (result && result.length > 0) {
+        phantomRequests = result;
+      }
     } catch (err) {
       console.error('Failed to load phantom requests:', err);
       error = 'Failed to load suggestions';
+      phantomRequests = [];
+    } finally {
+      isLoading = false;
+    }
+  }
+  
+  async function handleManualRefresh() {
+    if (!lastRequestInFlow) {
+      phantomRequests = [];
+      return;
+    }
+    
+    isLoading = true;
+    error = '';
+    
+    try {
+      // Use forced refresh which bypasses rate limiting
+      const result = await GetPhantomRequestsForced(gleipFlowId, lastRequestInFlow);
+      phantomRequests = result || [];
+    } catch (err) {
+      console.error('Failed to refresh phantom requests:', err);
+      error = 'Failed to refresh suggestions';
       phantomRequests = [];
     } finally {
       isLoading = false;
@@ -49,7 +83,7 @@
     {#if !isLoading && phantomRequests.length > 0}
       <button
         class="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-        on:click={loadPhantomRequests}
+        on:click={handleManualRefresh}
       >
         Refresh
       </button>

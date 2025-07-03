@@ -1,4 +1,10 @@
 2025.07.02
+🐛 Bug Fixing
+- Fixed numerous bugs in the import page
+- Fixed the Send Req button so that it doesn't affect other steps' selected status
+- Fixed bug in the GleipFlow frontend that was causing many unnecessary page refreshes
+
+2025.07.02
 ✨ What's New
 - Added more basic chef actions!
 

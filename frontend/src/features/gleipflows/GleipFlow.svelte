@@ -23,7 +23,8 @@
     deleteStep,
     updateStepSelection,
     updateStepExpansion,
-    pasteRequestAtPosition
+    pasteRequestAtPosition,
+    updateFuzzResults
   } from './store/gleipStore';
   import { getRequestFromClipboard, createRequestStepFromClipboard } from './utils/clipboardUtils';
   import type { GleipFlowStep, GleipFlow } from './types';
@@ -73,60 +74,17 @@
   // Listen for fuzz updates from backend
   const handleFuzzUpdate = (event: any) => {
     console.log("Received fuzz update event:", event);
-    const { stepId, fuzzResults } = event;
+    const { stepId, fuzzResults, isFuzzing } = event;
     
-    if (!$activeGleipFlow || $activeGleipFlowIndex === null) {
-      console.warn("No active GleipFlow found for fuzz update");
+    if (!stepId) {
+      console.warn("No stepId in fuzz update event");
       return;
     }
     
-    // Find the step that was updated
-    const currentGleipFlow = $gleipFlows[$activeGleipFlowIndex];
-    const stepIndex = currentGleipFlow.steps.findIndex((s: any) => 
-      s.stepType === 'request' && s.requestStep && s.requestStep.stepAttributes.id === stepId
-    );
+    // Update fuzz results in separate store to avoid triggering full gleip flow re-render
+    updateFuzzResults(stepId, fuzzResults || []);
     
-    console.log(`Updating step at index ${stepIndex} with ${fuzzResults?.length || 0} fuzz results`);
-    
-    if (stepIndex >= 0) {
-      const step = currentGleipFlow.steps[stepIndex];
-      if (step.stepType === 'request' && step.requestStep && step.requestStep.fuzzSettings) {
-        // Create a new fuzz settings object with properly typed properties
-        const updatedFuzzSettings = {
-          delay: step.requestStep.fuzzSettings.delay || 0.3, // Ensure delay is a number
-          currentWordlist: step.requestStep.fuzzSettings.currentWordlist || [],
-          fuzzResults: fuzzResults || []
-        };
-        
-        // Update the step with the new fuzzSettings
-        const updatedStep = {
-          ...step,
-          requestStep: {
-            ...step.requestStep,
-            fuzzSettings: updatedFuzzSettings
-          }
-        };
-        
-        // Update the gleipFlow with the updated step
-        const updatedGleipFlow = {
-          ...currentGleipFlow,
-          steps: [
-            ...currentGleipFlow.steps.slice(0, stepIndex),
-            updatedStep,
-            ...currentGleipFlow.steps.slice(stepIndex + 1)
-          ]
-        };
-        
-        // Update the store
-        gleipFlows.set([
-          ...$gleipFlows.slice(0, $activeGleipFlowIndex),
-          updatedGleipFlow,
-          ...$gleipFlows.slice($activeGleipFlowIndex + 1)
-        ]);
-        
-        console.log("Gleip store updated with new fuzz results");
-      }
-    }
+    console.log(`Updated fuzz results for step ${stepId} with ${fuzzResults?.length || 0} results (isFuzzing: ${isFuzzing})`);
   };
   
   // Load gleipFlows on component mount
@@ -974,6 +932,7 @@
             <PhantomRequestsSection
               gleipFlowId={$gleipFlows[$activeGleipFlowIndex].id}
               lastRequestInFlow={getLastRequestInFlow()}
+              cachedPhantomRequests={$gleipFlows[$activeGleipFlowIndex].cachedPhantomRequests || []}
               on:addPhantomRequest={handleAddPhantomRequest}
             />
           {/if}

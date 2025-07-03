@@ -20,6 +20,22 @@ import (
 var fuzzCancellation = make(chan struct{})
 var fuzzMutex sync.Mutex
 
+// Global phantom request rate limiting state
+var phantomRequestState = struct {
+	mutex                 sync.Mutex
+	lastRefreshTime       map[string]time.Time // gleipFlowID -> last refresh time
+	lastRequestSignature  map[string]string    // gleipFlowID -> last request signature
+	activeFuzzingSessions map[string]bool      // gleipFlowID -> fuzzing active
+}{
+	lastRefreshTime:       make(map[string]time.Time),
+	lastRequestSignature:  make(map[string]string),
+	activeFuzzingSessions: make(map[string]bool),
+}
+
+const (
+	phantomRefreshCooldown = 5 * time.Second // 5 seconds minimum between refreshes
+)
+
 // SaveGleipFlow saves or updates a gleipFlow
 func (a *App) SaveGleipFlow(gleipFlow GleipFlow) (GleipFlow, error) {
 	fmt.Printf("DEBUG: SaveGleipFlow called with flow ID: %s, name: %s\n", gleipFlow.ID, gleipFlow.Name)
@@ -100,16 +116,13 @@ func (a *App) StartFuzzing(gleipFlowID string, stepID string) error {
 		return fmt.Errorf("failed to get gleipFlow: %v", err)
 	}
 
-	// Find the request step
+	// Find the request step and its index
 	var requestStep *RequestStep
+	var targetStepIndex int = -1
 	for i, step := range gleipFlow.Steps {
 		if step.StepType == "request" && step.RequestStep != nil && step.RequestStep.StepAttributes.ID == stepID {
 			requestStep = step.RequestStep
-
-			// Make sure only this step is selected for execution
-			for j := range gleipFlow.Steps {
-				gleipFlow.Steps[j].Selected = (j == i)
-			}
+			targetStepIndex = i
 			break
 		}
 	}
@@ -134,24 +147,82 @@ func (a *App) StartFuzzing(gleipFlowID string, stepID string) error {
 	requestStep.FuzzSettings.FuzzResults = []FuzzResult{}
 	fmt.Printf("Cleared previous fuzz results for step %s\n", stepID)
 
+	// Mark this flow as having an active fuzzing session
+	phantomRequestState.mutex.Lock()
+	phantomRequestState.activeFuzzingSessions[gleipFlowID] = true
+	phantomRequestState.mutex.Unlock()
+
 	// Reset the cancellation channel
 	fuzzCancellation = make(chan struct{})
 
-	// Execute the flow (which will only execute the selected step)
-	_, err = a.gleipFlowExecutor.ExecuteGleipFlow(gleipFlow)
+	// Create a copy of the flow with modified selections for execution (similar to ExecuteSingleStep)
+	flowCopy := *gleipFlow
+	flowCopy.Steps = make([]GleipFlowStep, len(gleipFlow.Steps))
+	copy(flowCopy.Steps, gleipFlow.Steps)
+
+	// Modify selections in the copy: only target request step + selected non-request steps
+	for i := range flowCopy.Steps {
+		if i == targetStepIndex {
+			// Always select the target request step
+			flowCopy.Steps[i].Selected = true
+		} else if flowCopy.Steps[i].StepType == "request" {
+			// Deselect all other request steps
+			flowCopy.Steps[i].Selected = false
+		}
+		// Non-request steps keep their original selection for context
+	}
+
+	// Execute the flow with the modified selections
+	_, err = a.gleipFlowExecutor.ExecuteGleipFlow(&flowCopy)
 	if err != nil {
 		// Track error
 		TrackError("fuzzing", "execution_error")
 		return fmt.Errorf("failed to execute fuzz: %v", err)
 	}
 
-	// Save the updated flow with fuzz results
-	_, err = a.SaveGleipFlow(*gleipFlow)
-	if err != nil {
-		// Track error
-		TrackError("fuzzing", "save_results_error")
-		return fmt.Errorf("failed to save fuzz results: %v", err)
+	// Save back the fuzz results while preserving original Selected properties
+	// Update the cached flow with fuzz results but preserve original Selected properties
+	a.gleipFlowsMutex.Lock()
+	if cachedFlow, exists := a.gleipFlowsCache[gleipFlowID]; exists {
+		// Update steps array but preserve original Selected properties
+		for i := range cachedFlow.Steps {
+			if i < len(flowCopy.Steps) {
+				// Preserve original Selected property
+				originalSelected := cachedFlow.Steps[i].Selected
+				cachedFlow.Steps[i] = flowCopy.Steps[i]
+				cachedFlow.Steps[i].Selected = originalSelected
+			}
+		}
 	}
+	a.gleipFlowsMutex.Unlock()
+
+	// Update the project flow with fuzz results but preserve original Selected properties
+	a.projectMutex.Lock()
+	if a.currentProject != nil {
+		for _, projectFlow := range a.currentProject.GleipFlows {
+			if projectFlow.ID == gleipFlowID {
+				// Update steps array but preserve original Selected properties
+				for i := range projectFlow.Steps {
+					if i < len(flowCopy.Steps) {
+						// Preserve original Selected property
+						originalSelected := projectFlow.Steps[i].Selected
+						projectFlow.Steps[i] = flowCopy.Steps[i]
+						projectFlow.Steps[i].Selected = originalSelected
+					}
+				}
+				break
+			}
+		}
+	}
+	a.projectMutex.Unlock()
+
+	// Request auto-save since we've modified gleipFlow data (including fuzz results)
+	a.requestAutoSaveWithComponent("gleip_flows")
+
+	// Mark fuzzing as completed for this flow
+	phantomRequestState.mutex.Lock()
+	phantomRequestState.activeFuzzingSessions[gleipFlowID] = false
+	phantomRequestState.mutex.Unlock()
 
 	return nil
 }
@@ -182,6 +253,13 @@ func (a *App) StopFuzzing() error {
 
 	// Create a new channel for the next fuzzing operation
 	fuzzCancellation = make(chan struct{})
+
+	// Clear all active fuzzing sessions since we're stopping all fuzzing
+	phantomRequestState.mutex.Lock()
+	for flowID := range phantomRequestState.activeFuzzingSessions {
+		phantomRequestState.activeFuzzingSessions[flowID] = false
+	}
+	phantomRequestState.mutex.Unlock()
 
 	fmt.Printf("Fuzzing stopped by user\n")
 	return nil
@@ -736,6 +814,48 @@ func (a *App) AddStepToGleipFlowAtPosition(gleipFlowID string, stepType string, 
 	return &newStep, nil
 }
 
+// RemoveStepFromGleipFlow removes a step from an existing GleipFlow by index
+func (a *App) RemoveStepFromGleipFlow(gleipFlowID string, stepIndex int) error {
+	gleipFlow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		// Track error
+		TrackError("gleipflow", "get_flow_error")
+		return fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Validate step index
+	if stepIndex < 0 || stepIndex >= len(gleipFlow.Steps) {
+		return fmt.Errorf("invalid step index %d (valid range: 0-%d)", stepIndex, len(gleipFlow.Steps)-1)
+	}
+
+	// Get step type for tracking
+	stepType := gleipFlow.Steps[stepIndex].StepType
+
+	// Remove step from slice
+	gleipFlow.Steps = append(gleipFlow.Steps[:stepIndex], gleipFlow.Steps[stepIndex+1:]...)
+
+	// Track step removal
+	TrackFlowStepExecuted(gleipFlowID, stepType, true)
+
+	// AUTOMATICALLY save the updated flow (this will update both cache and project)
+	err = a.UpdateGleipFlow(*gleipFlow)
+	if err != nil {
+		// Track error
+		TrackError("gleipflow", "save_flow_error")
+		return fmt.Errorf("failed to save gleipFlow: %v", err)
+	}
+
+	// Force refresh phantom requests since removing a step is a structural change
+	phantomRequestState.mutex.Lock()
+	// Clear the signature so next GetPhantomRequests call will refresh
+	delete(phantomRequestState.lastRequestSignature, gleipFlowID)
+	phantomRequestState.mutex.Unlock()
+
+	fmt.Printf("DEBUG: Removed step %d from flow %s and cleared phantom request signature\n", stepIndex, gleipFlowID)
+
+	return nil
+}
+
 // Domain extraction moved to telemetry.go
 
 // DuplicateGleipFlow creates a copy of an existing GleipFlow
@@ -868,14 +988,7 @@ func (a *App) RenameGleipFlow(gleipFlowID string, newName string) error {
 	return nil
 }
 
-// PhantomRequest represents a suggested request generated by analyzing the flow
-type PhantomRequest struct {
-	Host string `json:"host"`
-	TLS  bool   `json:"tls"`
-	Dump string `json:"dump"`
-}
-
-// Implement RequestLike interface
+// Implement RequestLike interface for PhantomRequest
 func (p *PhantomRequest) GetHost() string { return p.Host }
 func (p *PhantomRequest) GetTLS() bool    { return p.TLS }
 func (p *PhantomRequest) GetDump() string { return p.Dump }
@@ -886,8 +999,201 @@ type ScoredTransaction struct {
 	Score       float64
 }
 
+// createRequestStructuralSignature creates a signature based only on structural properties of a request
+// This excludes execution results to detect only meaningful changes
+func createRequestStructuralSignature(lastRequest interface{}) string {
+	if lastRequest == nil {
+		return ""
+	}
+
+	// Try to extract structural properties from the request
+	signature := map[string]interface{}{}
+
+	// Use reflection or type assertion to extract request properties
+	if reqMap, ok := lastRequest.(map[string]interface{}); ok {
+		if stepAttrs, exists := reqMap["stepAttributes"]; exists {
+			if attrs, ok := stepAttrs.(map[string]interface{}); ok {
+				signature["stepId"] = attrs["id"]
+				signature["name"] = attrs["name"]
+			}
+		}
+		if request, exists := reqMap["request"]; exists {
+			if req, ok := request.(map[string]interface{}); ok {
+				signature["host"] = req["host"]
+				signature["dump"] = req["dump"]
+			}
+		}
+	}
+
+	// Convert to JSON string for comparison
+	jsonBytes, _ := json.Marshal(signature)
+	return string(jsonBytes)
+}
+
+// canRefreshPhantomRequests checks if enough time has passed since last refresh
+func canRefreshPhantomRequests(gleipFlowID string) bool {
+	phantomRequestState.mutex.Lock()
+	defer phantomRequestState.mutex.Unlock()
+
+	lastRefresh, exists := phantomRequestState.lastRefreshTime[gleipFlowID]
+	if !exists {
+		return true
+	}
+
+	return time.Since(lastRefresh) >= phantomRefreshCooldown
+}
+
+// shouldRefreshPhantomRequests determines if phantom requests should be refreshed based on
+// structural changes and rate limiting
+func shouldRefreshPhantomRequests(gleipFlowID string, lastRequest interface{}) string {
+	phantomRequestState.mutex.Lock()
+	defer phantomRequestState.mutex.Unlock()
+
+	// Skip refresh if there's an active fuzzing session for this flow
+	if phantomRequestState.activeFuzzingSessions[gleipFlowID] {
+		return "skip_fuzzing"
+	}
+
+	newSignature := createRequestStructuralSignature(lastRequest)
+
+	// Check if this is the first load (no previous signature exists)
+	lastSignature, signatureExists := phantomRequestState.lastRequestSignature[gleipFlowID]
+	if !signatureExists {
+		// First load - always allow
+		phantomRequestState.lastRequestSignature[gleipFlowID] = newSignature
+		phantomRequestState.lastRefreshTime[gleipFlowID] = time.Now()
+		fmt.Printf("Phantom requests: First load for flow %s - allowing refresh\n", gleipFlowID)
+		return "refresh"
+	}
+
+	// Check if signature changed (structural change)
+	if lastSignature != newSignature {
+		// Structural change detected, but check rate limit
+		lastRefresh, refreshExists := phantomRequestState.lastRefreshTime[gleipFlowID]
+		if !refreshExists || time.Since(lastRefresh) >= phantomRefreshCooldown {
+			// Update state
+			phantomRequestState.lastRequestSignature[gleipFlowID] = newSignature
+			phantomRequestState.lastRefreshTime[gleipFlowID] = time.Now()
+			fmt.Printf("Phantom requests: Structural change detected for flow %s - allowing refresh\n", gleipFlowID)
+			return "refresh"
+		} else {
+			fmt.Printf("Phantom requests: Structural change detected for flow %s but rate limited (%.1fs remaining)\n", gleipFlowID, phantomRefreshCooldown.Seconds()-time.Since(lastRefresh).Seconds())
+		}
+	}
+
+	return "skip_rate_limit"
+}
+
 // GetPhantomRequests generates suggested requests based on the last request in the flow
 func (a *App) GetPhantomRequests(gleipFlowID string, lastRequest interface{}) ([]PhantomRequest, error) {
+	// Get the flow to check for cached phantom requests
+	flow, err := a.GetGleipFlow(gleipFlowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get gleipFlow: %v", err)
+	}
+
+	// Check if we should refresh based on structural changes and rate limiting
+	refreshDecision := shouldRefreshPhantomRequests(gleipFlowID, lastRequest)
+	if refreshDecision == "skip_fuzzing" {
+		fmt.Printf("Phantom requests: Skipping refresh for flow %s - fuzzing session active\n", gleipFlowID)
+		// Return cached phantom requests if available, otherwise return nil
+		if len(flow.CachedPhantomRequests) > 0 {
+			fmt.Printf("Phantom requests: Returning %d cached suggestions\n", len(flow.CachedPhantomRequests))
+			return flow.CachedPhantomRequests, nil
+		}
+		return nil, nil
+	} else if refreshDecision == "skip_rate_limit" {
+		fmt.Printf("Phantom requests: Skipping refresh for flow %s due to rate limiting or no structural changes\n", gleipFlowID)
+		// Return cached phantom requests if available, otherwise return empty array
+		if len(flow.CachedPhantomRequests) > 0 {
+			fmt.Printf("Phantom requests: Returning %d cached suggestions\n", len(flow.CachedPhantomRequests))
+			return flow.CachedPhantomRequests, nil
+		}
+		return []PhantomRequest{}, nil
+	} else if refreshDecision != "refresh" {
+		// Unknown decision, return cached if available
+		if len(flow.CachedPhantomRequests) > 0 {
+			return flow.CachedPhantomRequests, nil
+		}
+		return []PhantomRequest{}, nil
+	}
+
+	fmt.Printf("Phantom requests: Generating new suggestions for flow %s\n", gleipFlowID)
+
+	// Get current request from history
+	var currentTx *network.HTTPTransaction
+	if flow != nil && len(flow.ExecutionResults) > 0 {
+		// Get the last executed request's transaction
+		for i := len(flow.ExecutionResults) - 1; i >= 0; i-- {
+			if flow.ExecutionResults[i].Transaction != nil {
+				currentTx = flow.ExecutionResults[i].Transaction
+				break
+			}
+		}
+	}
+
+	// Get transaction history
+	history := a.proxyServer.transactionStore.GetAll()
+
+	if currentTx == nil || len(history) < 2 {
+		// Return empty suggestions if no context or insufficient history
+		return []PhantomRequest{}, nil
+	}
+
+	// Find top 3 likely next requests based on heuristics
+	likelyNextRequests := a.findLikelyNextRequests(history, *currentTx)
+
+	// Convert to PhantomRequest format
+	phantomRequests := make([]PhantomRequest, 0, len(likelyNextRequests))
+	for _, scoredTx := range likelyNextRequests {
+		phantomRequest := PhantomRequest{
+			Host: scoredTx.Transaction.Request.Host,
+			TLS:  scoredTx.Transaction.Request.TLS,
+			Dump: scoredTx.Transaction.Request.Dump,
+		}
+		phantomRequests = append(phantomRequests, phantomRequest)
+	}
+
+	// Cache the newly generated phantom requests in the flow
+	flow.CachedPhantomRequests = phantomRequests
+	err = a.UpdateGleipFlow(*flow)
+	if err != nil {
+		fmt.Printf("Warning: Failed to cache phantom requests for flow %s: %v\n", gleipFlowID, err)
+		// Continue anyway, return the generated requests even if caching failed
+	} else {
+		fmt.Printf("Phantom requests: Cached %d suggestions for flow %s\n", len(phantomRequests), gleipFlowID)
+	}
+
+	// Track phantom request generation
+	trackEvent("phantom_requests", "generated", map[string]interface{}{
+		"flow_id": gleipFlowID,
+		"count":   len(phantomRequests),
+	})
+
+	fmt.Printf("Phantom requests: Generated %d new suggestions for flow %s\n", len(phantomRequests), gleipFlowID)
+	return phantomRequests, nil
+}
+
+// GetPhantomRequestsForced generates suggested requests bypassing rate limiting (for manual refresh)
+func (a *App) GetPhantomRequestsForced(gleipFlowID string, lastRequest interface{}) ([]PhantomRequest, error) {
+	// Update the refresh time to bypass rate limiting and fuzzing blocks
+	phantomRequestState.mutex.Lock()
+	phantomRequestState.lastRefreshTime[gleipFlowID] = time.Now()
+	phantomRequestState.lastRequestSignature[gleipFlowID] = createRequestStructuralSignature(lastRequest)
+	// Temporarily disable fuzzing block for forced refresh
+	wasFuzzing := phantomRequestState.activeFuzzingSessions[gleipFlowID]
+	phantomRequestState.activeFuzzingSessions[gleipFlowID] = false
+	phantomRequestState.mutex.Unlock()
+
+	// Restore fuzzing state at the end
+	defer func() {
+		phantomRequestState.mutex.Lock()
+		phantomRequestState.activeFuzzingSessions[gleipFlowID] = wasFuzzing
+		phantomRequestState.mutex.Unlock()
+	}()
+
+	fmt.Printf("Phantom requests: Forced refresh for flow %s\n", gleipFlowID)
+
 	// Get the flow to understand context
 	flow, err := a.GetGleipFlow(gleipFlowID)
 	if err != nil {
@@ -928,12 +1234,23 @@ func (a *App) GetPhantomRequests(gleipFlowID string, lastRequest interface{}) ([
 		phantomRequests = append(phantomRequests, phantomRequest)
 	}
 
+	// Cache the newly generated phantom requests in the flow
+	flow.CachedPhantomRequests = phantomRequests
+	err = a.UpdateGleipFlow(*flow)
+	if err != nil {
+		fmt.Printf("Warning: Failed to cache phantom requests for flow %s: %v\n", gleipFlowID, err)
+		// Continue anyway, return the generated requests even if caching failed
+	} else {
+		fmt.Printf("Phantom requests: Cached %d suggestions for forced refresh of flow %s\n", len(phantomRequests), gleipFlowID)
+	}
+
 	// Track phantom request generation
-	trackEvent("phantom_requests", "generated", map[string]interface{}{
+	trackEvent("phantom_requests", "forced_generated", map[string]interface{}{
 		"flow_id": gleipFlowID,
 		"count":   len(phantomRequests),
 	})
 
+	fmt.Printf("Phantom requests: Generated %d suggestions for forced refresh of flow %s\n", len(phantomRequests), gleipFlowID)
 	return phantomRequests, nil
 }
 

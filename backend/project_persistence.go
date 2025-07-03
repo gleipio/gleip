@@ -41,6 +41,8 @@ func init() {
 	gob.Register(&FuzzSettings{})
 	gob.Register(&FuzzResult{})
 	gob.Register([]FuzzResult{})
+	gob.Register(&PhantomRequest{})
+	gob.Register([]PhantomRequest{})
 
 	// Register API collection types
 	gob.Register(&APICollection{})

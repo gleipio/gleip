@@ -5,6 +5,7 @@
   import { parseRawHttpRequest } from '../utils/httpUtils';
   import { StopFuzzing } from '../../../../wailsjs/go/backend/App';
   import { GetRequestMethod, GetResponseStatusCode } from '../../../../wailsjs/go/network/HTTPHelper';
+  import { fuzzResults } from '../store/gleipStore';
   
   export let requestStep: RequestStepType;
   export let executionResult: ExecutionResult | undefined = undefined;
@@ -85,6 +86,9 @@
   
   // Use persistently stored mode rather than local state
   $: mode = requestStep.isFuzzMode ? 'fuzz' : 'parse';
+  
+  // Get fuzz results from separate store to avoid triggering gleip flow re-renders
+  $: currentFuzzResults = $fuzzResults[requestStep.stepAttributes.id] || [];
   
   // Handle mode change
   function handleModeChange(newMode: 'parse' | 'fuzz') {
@@ -178,6 +182,9 @@
   
   // Variable extractions
   let isVariableExtractionsExpanded = true;
+  
+  // Wordlist settings collapse state
+  let isWordlistSettingsExpanded = true;
   
   function addVariableExtraction() {
     const newExtraction: VariableExtract = {
@@ -294,7 +301,7 @@
   
   // Toggle fuzz configuration
   function toggleFuzzConfig() {
-    dispatch('update', { isExpanded: !requestStep.stepAttributes.isExpanded });
+    isWordlistSettingsExpanded = !isWordlistSettingsExpanded;
   }
   
   // Fuzz result handling
@@ -340,8 +347,8 @@
     return sortDirection === 'asc' ? '↑' : '↓';
   }
   
-  $: filteredAndSortedResults = requestStep.fuzzSettings?.fuzzResults
-    ? [...requestStep.fuzzSettings.fuzzResults]
+  $: filteredAndSortedResults = currentFuzzResults.length > 0
+    ? [...currentFuzzResults]
         // Filter by status code
         .filter(result => {
           if (statusFilter === 'all') return true;
@@ -381,19 +388,19 @@
         })
     : [];
 
-  $: fuzzStats = requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0
+  $: fuzzStats = currentFuzzResults.length > 0
     ? {
-        total: requestStep.fuzzSettings.fuzzResults.length,
+        total: currentFuzzResults.length,
         status: {
-          '2xx': requestStep.fuzzSettings.fuzzResults.filter(r => r.statusCode >= 200 && r.statusCode < 300).length,
-          '3xx': requestStep.fuzzSettings.fuzzResults.filter(r => r.statusCode >= 300 && r.statusCode < 400).length,
-          '4xx': requestStep.fuzzSettings.fuzzResults.filter(r => r.statusCode >= 400 && r.statusCode < 500).length,
-          '5xx': requestStep.fuzzSettings.fuzzResults.filter(r => r.statusCode >= 500).length,
+          '2xx': currentFuzzResults.filter(r => r.statusCode >= 200 && r.statusCode < 300).length,
+          '3xx': currentFuzzResults.filter(r => r.statusCode >= 300 && r.statusCode < 400).length,
+          '4xx': currentFuzzResults.filter(r => r.statusCode >= 400 && r.statusCode < 500).length,
+          '5xx': currentFuzzResults.filter(r => r.statusCode >= 500).length,
         },
-        avgTime: Math.round(requestStep.fuzzSettings.fuzzResults.reduce((sum, r) => sum + r.time, 0) / requestStep.fuzzSettings.fuzzResults.length),
-        avgSize: Math.round(requestStep.fuzzSettings.fuzzResults.reduce((sum, r) => sum + r.size, 0) / requestStep.fuzzSettings.fuzzResults.length),
-        minTime: Math.min(...requestStep.fuzzSettings.fuzzResults.map(r => r.time)),
-        maxTime: Math.max(...requestStep.fuzzSettings.fuzzResults.map(r => r.time)),
+        avgTime: Math.round(currentFuzzResults.reduce((sum, r) => sum + r.time, 0) / currentFuzzResults.length),
+        avgSize: Math.round(currentFuzzResults.reduce((sum, r) => sum + r.size, 0) / currentFuzzResults.length),
+        minTime: Math.min(...currentFuzzResults.map(r => r.time)),
+        maxTime: Math.max(...currentFuzzResults.map(r => r.time)),
       }
     : null;
 
@@ -425,8 +432,8 @@
         {#if requestStep.isFuzzMode}
           <span class="ml-2 px-2 py-0.5 bg-[var(--color-secondary-accent)] text-black text-xs rounded">
             Fuzz 
-            {#if requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0}
-              ({requestStep.fuzzSettings.fuzzResults.length})
+            {#if currentFuzzResults.length > 0}
+              ({currentFuzzResults.length})
             {/if}
           </span>
         {/if}
@@ -499,6 +506,75 @@
       </div>
     </div>
 
+    <!-- Wordlist settings - only shown in fuzz mode -->
+    {#if mode === 'fuzz'}
+      <div 
+        class="flex justify-between items-center cursor-pointer p-2 bg-[var(--color-midnight-darker)] rounded mb-2"
+        role="button"
+        tabindex="0"
+        on:click={toggleFuzzConfig}
+        on:keydown={(e) => e.key === 'Enter' && toggleFuzzConfig()}
+      >
+        <div class="flex items-center">
+          <span class="text-sm font-medium text-gray-50">
+              {isWordlistSettingsExpanded 
+              ? 'Wordlist Settings' 
+              : `Wordlist Settings (${requestStep.fuzzSettings?.currentWordlist?.length || 0} words, ${requestStep.fuzzSettings?.delay || 0.3}s delay)`}
+          </span>
+          {#if currentFuzzResults.length > 0}
+            <span class="ml-2 px-2 py-0.5 bg-[var(--color-secondary-accent)] text-black text-xs rounded">
+              {currentFuzzResults.length} results
+            </span>
+          {/if}
+        </div>
+        <span class="text-gray-50">{isWordlistSettingsExpanded ? '▲' : '▼'}</span>
+      </div>
+      
+      {#if isWordlistSettingsExpanded}
+        <div class="p-3 border border-[var(--color-table-border)] bg-[var(--color-midnight)] rounded mb-4">
+          <div class="flex flex-col gap-3">
+            <!-- Wordlist upload -->
+            <div>
+              <div class="flex items-center gap-2">
+                <label for="wordlist-upload-{requestStep.stepAttributes.id}" class="px-3 py-2 bg-[var(--color-midnight-darker)] hover:bg-[var(--color-midnight)] border border-[var(--color-table-border)] text-gray-50 text-sm rounded cursor-pointer transition-colors">
+                  Choose File
+                </label>
+                <input
+                  id="wordlist-upload-{requestStep.stepAttributes.id}"
+                  type="file"
+                  class="hidden"
+                  accept=".txt"
+                  on:change={handleFileUpload}
+                />
+                <span class="text-xs text-gray-500">
+                  {requestStep.fuzzSettings?.currentWordlist?.length || 0} words loaded
+                </span>
+              </div>
+            </div>
+            
+            <!-- Delay setting -->
+            <div>
+              <label for="delay-input-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Delay between requests (seconds)</label>
+              <input
+                id="delay-input-{requestStep.stepAttributes.id}"
+                type="number"
+                min="0"
+                step="0.1"
+                class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-3 py-2 rounded text-sm"
+                value={requestStep.fuzzSettings?.delay || 0.3}
+                on:change={handleDelayChange}
+              />
+            </div>
+            
+            <!-- Help text -->
+            <div class="text-xs text-gray-50 mt-1">
+              Use the <code class="text-[var(--color-warning)] px-1 py-0.5 rounded">{`{{fuzz}}`}</code> variable in your request to indicate where to insert the wordlist values.
+            </div>
+          </div>
+        </div>
+      {/if}
+    {/if}
+
     <!-- Stacked layout for request and response -->
     <div class="flex flex-col gap-4">
       <!-- Request section -->
@@ -540,6 +616,15 @@
                 title="Execute only this step"
               >
                 {isExecuting ? 'Executing...' : 'Send Req'}
+              </button>
+            {:else if mode === 'fuzz'}
+              <button
+                class={`px-3 py-2 hover:bg-opacity-90 text-sm rounded ${isExecuting ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-[var(--color-secondary-accent)] text-[var(--color-button-text)]'}`}
+                on:click={isExecuting ? handleStopFuzzing : startFuzzing}
+                disabled={!isExecuting && !requestStep.fuzzSettings?.currentWordlist?.length}
+                title={isExecuting ? "Stop fuzzing" : "Start fuzzing this step"}
+              >
+                {isExecuting ? 'Stop Fuzz' : 'Fuzz Req'}
               </button>
             {/if}
           </div>
@@ -748,101 +833,19 @@
         {:else}
           <!-- Fuzz Mode section -->
           <div class="w-full mt-2">          
-            <!-- Fuzz configuration section - collapsible after fuzzing starts -->
-            <div 
-              class="flex justify-between items-center cursor-pointer p-2 bg-[var(--color-midnight-darker)] rounded mb-2"
-              role="button"
-              tabindex="0"
-              on:click={toggleFuzzConfig}
-              on:keydown={(e) => e.key === 'Enter' && toggleFuzzConfig()}
-            >
-              <div class="flex items-center">
-                <span class="text-sm font-medium text-gray-50">
-                    {requestStep.stepAttributes.isExpanded 
-                    ? 'Wordlist Settings' 
-                    : `Wordlist Settings (${requestStep.fuzzSettings?.currentWordlist?.length || 0} words, ${requestStep.fuzzSettings?.delay || 0.3}s delay)`}
-                </span>
-                {#if requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0}
-                  <span class="ml-2 px-2 py-0.5 bg-[var(--color-secondary-accent)] text-black text-xs rounded">
-                    {requestStep.fuzzSettings.fuzzResults.length} results
-                  </span>
-                {/if}
-              </div>
-              <span class="text-gray-50">{requestStep.stepAttributes.isExpanded ? '▲' : '▼'}</span>
-            </div>
-            
-            {#if !requestStep.stepAttributes.isExpanded}
-              <div class="p-3 border border-[var(--color-table-border)] bg-[var(--color-midnight)] rounded mb-3">
-                <div class="flex flex-col gap-3">
-                  <!-- Wordlist upload -->
-                  <div>
-                    <label for="wordlist-upload-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Wordlist</label>
-                    <div class="flex items-center gap-2">
-                      <input
-                        id="wordlist-upload-{requestStep.stepAttributes.id}"
-                        type="file"
-                        class="text-sm text-gray-50"
-                        accept=".txt"
-                        on:change={handleFileUpload}
-                      />
-                      <span class="text-xs text-gray-500">
-                        {requestStep.fuzzSettings?.currentWordlist?.length || 0} words loaded
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <!-- Delay setting -->
-                  <div>
-                    <label for="delay-input-{requestStep.stepAttributes.id}" class="block text-sm font-medium text-gray-50 mb-1">Delay between requests (seconds)</label>
-                    <input
-                      id="delay-input-{requestStep.stepAttributes.id}"
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      class="w-full bg-[var(--color-midnight-darker)] border border-[var(--color-table-border)] text-white px-3 py-2 rounded text-sm"
-                      value={requestStep.fuzzSettings?.delay || 0.3}
-                      on:change={handleDelayChange}
-                    />
-                  </div>
-                  
-                  <!-- Start fuzzing button -->
-                  <button
-                    class="w-full px-3 py-2 bg-[var(--color-secondary-accent)] hover:bg-opacity-90 text-[var(--color-button-text)] rounded text-sm mt-2"
-                    on:click={startFuzzing}
-                    disabled={isExecuting || !requestStep.fuzzSettings?.currentWordlist?.length}
-                  >
-                    {isExecuting ? 'Fuzzing...' : 'Start Fuzzing'}
-                  </button>
-                  
-                  <!-- Help text -->
-                  <div class="text-xs text-gray-50 mt-1">
-                    Use the <code class="text-[var(--color-warning)] px-1 py-0.5 rounded">{`{{fuzz}}`}</code> variable in your request to indicate where to insert the wordlist values.
-                  </div>
-                </div>
-              </div>
-            {/if}
-            
             <!-- Fuzz results list - always visible when results are available -->
             <div class="border border-[var(--color-table-border)] rounded overflow-hidden mt-2">
               <div class="bg-[var(--color-midnight-darker)] px-3 py-2 flex justify-between items-center">
                 <h3 class="text-sm font-medium text-gray-50">
                   Fuzz Results 
-                  {#if requestStep.fuzzSettings?.fuzzResults}
-                    ({filteredAndSortedResults.length}/{requestStep.fuzzSettings.fuzzResults.length})
+                  {#if currentFuzzResults.length > 0}
+                    ({filteredAndSortedResults.length}/{currentFuzzResults.length})
                   {:else}
                     (0)
                   {/if}
                 </h3>
                 {#if isExecuting}
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-50 animate-pulse">Fuzzing in progress...</span>
-                    <button 
-                      class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
-                      on:click={handleStopFuzzing}
-                    >
-                      Stop Fuzzing
-                    </button>
-                  </div>
+                  <span class="text-xs text-gray-50 animate-pulse">Fuzzing in progress...</span>
                 {/if}
               </div>
               
@@ -877,7 +880,7 @@
               </div>
               
               <!-- Statistics summary -->
-              {#if requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0 && fuzzStats}
+              {#if currentFuzzResults.length > 0 && fuzzStats}
                 <div class="p-2 bg-[var(--color-midnight-darker)] border-t border-b border-[var(--color-table-border)]">
                   <div class="flex flex-wrap gap-2 text-xs">
                     <div class="bg-[var(--color-midnight)] rounded px-2 py-1">
@@ -923,7 +926,7 @@
                 </div>
               {/if}
               
-              {#if requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0}
+              {#if currentFuzzResults.length > 0}
                 <!-- Results table in a fixed height scrollable viewport -->
                 <div class="h-60 overflow-y-auto">
                   <table class="w-full text-sm text-left text-gray-100">
@@ -987,7 +990,7 @@
             </div>
             
             <!-- Selected result details - appears only when a result is clicked -->
-            {#if requestStep.fuzzSettings?.fuzzResults && requestStep.fuzzSettings.fuzzResults.length > 0 && selectedFuzzResult}
+            {#if currentFuzzResults.length > 0 && selectedFuzzResult}
               <div class="mt-4 grid grid-cols-1 gap-4">
                 <div>
                   <h4 class="block text-sm font-medium text-gray-50 mb-1">Request for "{selectedFuzzResult.word}"</h4>

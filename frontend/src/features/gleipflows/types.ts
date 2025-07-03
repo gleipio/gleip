@@ -58,6 +58,12 @@ export type VariableExtract = {
   selector: string;
 };
 
+export type PhantomRequest = {
+  host: string;
+  tls: boolean;
+  dump: string;
+};
+
 export type GleipFlowStep = {
   stepType: string;
   selected: boolean; // Flag to indicate if this step should be executed
@@ -75,6 +81,7 @@ export type GleipFlow = {
   sortingIndex: number; // Index for tab ordering (1 to n)
   executionResults?: ExecutionResult[]; // Execution results from the backend
   isVariableStepExpanded?: boolean; // Expansion state for variables step
+  cachedPhantomRequests?: PhantomRequest[]; // Cached suggested requests
 };
 
 export type ExecutionResult = backend.ExecutionResult & {

@@ -1,0 +1,134 @@
+name: Build on Push
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'cmd/**'
+      - 'main.go'
+      - 'wails.json'
+    branches: [ main, develop ]
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    # Use MACOS environment for macOS release builds to access signing certificates
+    # environment: ${{ matrix.os == 'darwin' && github.event_name == 'release' && 'MACOS' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows builds
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+            
+          # macOS builds  
+          - os: darwin
+            arch: arm64
+            runner: macos-14  # Apple Silicon Mac
+            
+          # Linux builds
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    # Platform-specific dependency installation
+    - name: Install Linux dependencies
+      if: matrix.os == 'linux'
+      run: |
+        sudo apt update
+        sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
+
+    - name: Install macOS dependencies
+      if: matrix.os == 'darwin'
+      run: |
+        brew install create-dmg
+
+    - name: Install Windows dependencies
+      if: matrix.os == 'windows'
+      run: |
+        # Install NSIS for packaging
+        choco install nsis -y
+
+    # Install Wails
+    - name: Install Wails
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    # Set environment variable to skip code signing in CI
+    - name: Set CI environment
+      run: echo "GLEIP_CI_BUILD=true" >> $GITHUB_ENV
+      shell: bash
+
+    # Extract version from wails.json for build injection
+    - name: Extract version
+      shell: bash
+      run: |
+        VERSION=$(grep '"productVersion"' wails.json | sed 's/.*": "\([^"]*\)".*/\1/')
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "Building version: $VERSION"
+
+    # Build using our Go build tool (will use pre-committed certificate databases)
+    - name: Build for current platform
+      run: go run cmd/build-tool/main.go build
+      env:
+        POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+        POSTHOG_ENDPOINT: ${{ secrets.POSTHOG_ENDPOINT }}
+
+    # Package artifacts
+    - name: Package artifacts
+      shell: bash
+      run: |
+        mkdir -p dist
+        
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          if [ -f "./build/bin/Gleip.exe" ]; then
+            cp "./build/bin/Gleip.exe" "dist/gleip-${{ env.VERSION }}-windows-${{ matrix.arch }}.exe"
+          fi
+        elif [ "${{ matrix.os }}" = "darwin" ]; then
+          if [ -d "./build/bin/Gleip.app" ]; then
+            tar -czf "dist/gleip-${{ env.VERSION }}-macos-${{ matrix.arch }}.tar.gz" -C "./build/bin" "Gleip.app"
+          fi
+        elif [ "${{ matrix.os }}" = "linux" ]; then
+          if [ -f "./build/bin/Gleip" ]; then
+            cp "./build/bin/Gleip" "dist/gleip-${{ env.VERSION }}-linux-${{ matrix.arch }}"
+            chmod +x "dist/gleip-${{ env.VERSION }}-linux-${{ matrix.arch }}"
+          fi
+        fi
+
+    # Upload artifacts
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gleip-${{ matrix.os }}-${{ matrix.arch }}
+        path: dist/
+        retention-days: 5

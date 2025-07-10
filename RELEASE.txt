@@ -1,0 +1,21 @@
+2025.07.09
+✨ What's New
+- Added advanced filtering in History page
+
+2025.07.08.1
+✨ What's New
+- Added "Request Drop" feature to Intercept page
+
+2025.07.08
+✨ What's New
+- Intercepted requests are now de-chunked and decompressed
+
+2025.07.05
+✨ What's New
+- History columns can be sorted now
+
+2025.07.03
+🐛 Bug Fixing
+- Fixed numerous bugs in the import page
+- Fixed the Send Req button so that it doesn't affect other steps' selected status
+- Fixed bug in the GleipFlow frontend that was causing many unnecessary page refreshes

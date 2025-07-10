@@ -1,0 +1,36 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode development",
+    "build": "vite build --mode production",
+    "clean": "rm -rf node_modules/.vite dist",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.0",
+    "@tailwindcss/vite": "^4.1.9",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/js-beautify": "^1.14.3",
+    "@types/node": "^22.15.3",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.33",
+    "svelte": "^5",
+    "svelte-check": "^3.6.2",
+    "svelte-icons": "^2.1.0",
+    "svelte-preprocess": "^6.0.3",
+    "tailwindcss": "^4",
+    "typescript": "^5.2.2",
+    "vite": "^6.3.5",
+    "vite-plugin-monaco-editor": "^1.1.0"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.33.0",
+    "lucide-svelte": "^0.507.0",
+    "monaco-editor": "^0.52.2",
+    "prettier": "^3.5.3"
+  }
+}

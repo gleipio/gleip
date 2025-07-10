@@ -1,0 +1,36 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+
+# Wails specific
+.wails/
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Gleip specific
+build/bin/
+build/temp_certdb/
+build/darwin/
+build/linux/
+build/windows/
+build/dmg_temp/
+build/release_temp/
+
+gleip_certificate.go
+frontend/wailsjs/
+
+# Environment variables
+.env

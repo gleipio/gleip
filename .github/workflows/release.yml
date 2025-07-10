@@ -1,0 +1,116 @@
+name: Publish Builds on Release Creation
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: macos-latest
+    # environment: MACOS  # Use MACOS environment for signing certificates
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24'
+
+    - name: Extract version from tag
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Tag version: $VERSION"
+
+    - name: Find build workflow for this commit
+      id: find_run
+      run: |
+        # Get the workflow run for this specific commit
+        COMMIT_SHA=$(git rev-parse HEAD)
+        echo "Looking for build workflow for commit: $COMMIT_SHA"
+        
+        RUN_ID=$(gh run list \
+          --workflow="build.yml" \
+          --status="completed" \
+          --limit=10 \
+          --json="databaseId,headSha" \
+          --jq=".[] | select(.headSha == \"$COMMIT_SHA\") | .databaseId" | head -1)
+        
+        if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+          echo "❌ No successful build workflow found for commit $COMMIT_SHA"
+          echo "Available recent workflows:"
+          gh run list --workflow="build.yml" --limit=5 --json="databaseId,headSha,conclusion"
+          exit 1
+        fi
+        
+        echo "RUN_ID=$RUN_ID" >> $GITHUB_OUTPUT
+        echo "Found workflow run: $RUN_ID for commit: $COMMIT_SHA"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download build artifacts
+      run: |
+        mkdir -p ./release_temp
+        echo "⬇️ Downloading artifacts from workflow run ${{ steps.find_run.outputs.RUN_ID }}"
+        
+        gh run download ${{ steps.find_run.outputs.RUN_ID }} \
+          --dir ./release_temp
+        
+        echo "📦 Downloaded artifacts:"
+        find ./release_temp -type f -name "*" | head -20
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup code signing for macOS
+      if: env.MACOS_CERTIFICATE != ''
+      run: |
+        echo "🔐 Setting up code signing certificate..."
+        
+        # Create keychain and import certificate
+        KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+        security create-keychain -p "$KEYCHAIN_PASSWORD" release.keychain
+        security default-keychain -s release.keychain
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" release.keychain
+        
+        # Import certificate
+        echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+        security import certificate.p12 -k release.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" release.keychain
+        
+        # Clean up certificate file
+        rm certificate.p12
+        
+        echo "✅ Code signing certificate imported successfully"
+
+        # Enable code signing for the build tool (release only)
+        echo "GLEIP_CI_BUILD=" >> $GITHUB_ENV
+        echo "ENABLE_CODE_SIGNING=true" >> $GITHUB_ENV
+      env:
+        MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+
+    - name: Use build tool to publish release
+      run: |
+        echo "🚀 Using build tool to process artifacts and create release..."
+        go run cmd/build-tool/main.go publish
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+
+    - name: Cleanup
+      if: always()
+      run: |
+        # Clean up temporary files and directories
+        rm -rf ./release_temp ./build ./temp_*.txt
+        
+        # Clean up keychain if it was created
+        if security list-keychains | grep -q "release.keychain"; then
+          security delete-keychain release.keychain 2>/dev/null || true
+        fi 

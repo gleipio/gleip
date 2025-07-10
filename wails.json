@@ -1,0 +1,27 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Gleip",
+  "version": "2",
+  "outputfilename": "Gleip",
+  "frontend:dir": "frontend",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build -- --mode production",
+  "frontend:dev:watcher": "npm run dev -- --mode development",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Gleip",
+    "email": "info@gleip.io"
+  },
+  "logLevel": "info",
+  "info": {
+    "companyName": "Gleip",
+    "productName": "Gleip",
+    "productVersion": "v2025.07.09",
+    "copyright": "Copyright © 2025"
+  },
+  "nsisType": "multiple",
+  "assetdir": "./resources",
+  "bindings": {
+    "resourcedir": "resources"
+  }
+}

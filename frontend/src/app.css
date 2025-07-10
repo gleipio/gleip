@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+:root {
+    color-scheme: dark;
+}
+
+html {
+    background-color: var(--color-midnight);
+    overflow: hidden;
+}
+
+body {
+    margin: 0;
+    color: white;
+    background-color: var(--color-midnight);
+    overflow: hidden;
+    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+    sans-serif;
+    
+    /* Disable text selection app-wide */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+/* Global cursor styles for clickable elements */
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+select,
+[role="button"],
+[role="menuitem"],
+[tabindex="0"]:not(input):not(textarea),
+.cursor-pointer {
+    cursor: pointer;
+}
+
+/* Ensure disabled elements show not-allowed cursor */
+button:disabled,
+input:disabled,
+select:disabled,
+.cursor-not-allowed {
+    cursor: not-allowed;
+}
+
+/* Resize cursor overrides - these must come after the global pointer rules */
+.cursor-ns-resize,
+button.cursor-ns-resize,
+[tabindex="0"].cursor-ns-resize {
+    cursor: ns-resize !important;
+}
+
+.cursor-col-resize,
+button.cursor-col-resize,
+[tabindex="0"].cursor-col-resize {
+    cursor: col-resize !important;
+}
+
+.cursor-ew-resize,
+button.cursor-ew-resize,
+[tabindex="0"].cursor-ew-resize {
+    cursor: ew-resize !important;
+}
+
+/* Utility class to enable text selection in specific divs */
+.selectable {
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
+@font-face {
+    font-family: "Nunito";
+    font-style: normal;
+    font-weight: 400;
+    src: local(""),
+    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
+}
+
+#app {
+    height: 100vh;
+    text-align: left;
+    overflow: hidden;
+    background-color: var(--color-midnight);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.shimmer-text {
+  background: var(--gradient-shimmer);
+  background-size: 200% auto;
+  animation: shimmer var(--animation-shimmer-duration) infinite;
+  animation-play-state: paused;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  mix-blend-mode: overlay;
+}
+
+.shimmer-text {
+  animation: shimmer var(--animation-shimmer-duration) infinite;
+  animation-play-state: paused;
+}
+
+.shimmer-text::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  animation: shimmer var(--animation-shimmer-duration) infinite;
+  animation-play-state: paused;
+}
+
+.shimmer-text.animate {
+  animation-play-state: running;
+}
+
+.shimmer-text.animate::before {
+  animation-play-state: running;
+}
+
+.font-helvetica {
+  font-family: Helvetica, "Helvetica Neue", Arial, sans-serif;
+} 
